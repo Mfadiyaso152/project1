@@ -220,19 +220,19 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-4 py-8 flex-1">
+      <main className="max-w-6xl mx-auto px-4 py-8 flex-1 animate-fade-in-up">
         
         {step === Step.UPLOAD && (
-          <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <div className="animate-fade-in-up">
             <div className="text-center mb-10">
               <h2 className="text-3xl font-black text-slate-800 tracking-tight mb-2">تجهيز المستند الرسمي</h2>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10">
               {/* القسم الأول: المستندات المطلوبة */}
-              <div className="bg-white p-6 rounded-2xl border border-slate-200/60 shadow-sm flex flex-col gap-6">
+              <div className="bg-white p-6 rounded-2xl border border-slate-200/60 shadow-sm hover:shadow-md transition-all duration-300 flex flex-col gap-6">
                 <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
-                  <div className="w-2.5 h-6 bg-teal-600 rounded-full" />
+                  <div className="w-2.5 h-6 bg-teal-600 rounded-full animate-pulse" />
                   <h3 className="font-extrabold text-slate-800 text-base">المستندات المطلوب دمجها (أساسي)</h3>
                 </div>
                 
@@ -262,9 +262,9 @@ const App: React.FC = () => {
               </div>
 
               {/* القسم الثاني: التوثيق الاختياري */}
-              <div className="bg-white p-6 rounded-2xl border border-slate-200/60 shadow-sm flex flex-col gap-6">
+              <div className="bg-white p-6 rounded-2xl border border-slate-200/60 shadow-sm hover:shadow-md transition-all duration-300 flex flex-col gap-6">
                 <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
-                  <div className="w-2.5 h-6 bg-emerald-600 rounded-full" />
+                  <div className="w-2.5 h-6 bg-emerald-600 rounded-full animate-pulse" />
                   <h3 className="font-extrabold text-slate-800 text-base">أدوات التوثيق والاعتماد (اختياري)</h3>
                 </div>
 
@@ -292,7 +292,7 @@ const App: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => setIsDrawingSignature(true)}
-                      className="flex items-center justify-center gap-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 py-2.5 px-3 rounded-xl font-bold text-xs border border-emerald-200/40 shadow-xs transition-all cursor-pointer active:scale-[0.98]"
+                      className="flex items-center justify-center gap-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 py-2.5 px-3 rounded-xl font-bold text-xs border border-emerald-200/40 shadow-xs transition-all hover:scale-[1.02] cursor-pointer active:scale-[0.98]"
                     >
                       <PenTool size={13} />
                       أو ارسم توقيعك الحي الآن ✍️
@@ -309,7 +309,7 @@ const App: React.FC = () => {
                 className={`
                   flex items-center justify-center gap-3 px-12 py-4 rounded-xl font-bold text-lg transition-all shadow-xl
                   ${canProceed 
-                    ? 'bg-teal-600 text-white hover:bg-teal-700 hover:scale-[1.02] shadow-teal-100 cursor-pointer' 
+                    ? 'bg-teal-600 text-white hover:bg-teal-700 hover:scale-[1.03] active:scale-[0.98] shadow-teal-100 cursor-pointer' 
                     : 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'
                   }
                 `}
@@ -319,7 +319,7 @@ const App: React.FC = () => {
               </button>
               
               {!canProceed && (
-                <p className="text-sm font-medium text-amber-600 bg-amber-50 px-4 py-2 rounded-lg border border-amber-100 flex items-center gap-2">
+                <p className="text-sm font-medium text-amber-600 bg-amber-50 px-4 py-2 rounded-lg border border-amber-100 flex items-center gap-2 animate-pulse">
                   <HelpCircle size={16} />
                   يرجى رفع المستند الأصلي والورقة الرسمية للمتابعة (الختم والتوقيع اختياري)
                 </p>
@@ -329,7 +329,7 @@ const App: React.FC = () => {
         )}
 
         {step === Step.EDITOR && (
-          <div className="animate-in fade-in zoom-in-95 duration-500">
+          <div className="animate-scale-in">
             <CanvasEditor 
               documents={docs} 
               onReset={() => {
@@ -352,12 +352,16 @@ const App: React.FC = () => {
         />
       )}
 
-      {/* Footer Support */}
-      <footer className="w-full border-t border-slate-200 bg-white py-6 mt-16 text-slate-500 text-sm">
+      {/* Floating Support Card with Soft Rounded Corners */}
+      <footer className="w-full py-8 text-slate-500 text-sm animate-fade-in-up">
         <div className="max-w-6xl mx-auto px-4 flex justify-center">
-          <div className="flex items-center gap-3 text-slate-700 bg-slate-50 border border-slate-200/80 px-5 py-2.5 rounded-xl shadow-xs">
-            <span className="text-xs text-slate-500 font-bold">رقم المبرمج:</span>
-            <a href="tel:0536894854" className="font-black text-teal-600 hover:underline hover:text-teal-700 tracking-wider">0536894854</a>
+          <div className="flex items-center justify-center gap-3.5 text-slate-700 bg-white border border-slate-200/60 px-6 py-4 rounded-2xl shadow-sm hover:shadow-md transition-all duration-300 max-w-sm w-full">
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-teal-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-teal-500"></span>
+            </span>
+            <span className="text-xs text-slate-500 font-bold">رقم المبرمج للتواصل والدعم المباشر:</span>
+            <a href="tel:0536894854" className="font-extrabold text-teal-600 hover:text-teal-700 hover:underline tracking-wider text-sm transition-colors">0536894854</a>
           </div>
         </div>
       </footer>
