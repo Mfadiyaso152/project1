@@ -1,104 +1,316 @@
 import React, { useState } from 'react';
-import { FileText, Stamp, Image as ImageIcon, CheckCircle, ArrowLeft } from 'lucide-react';
+import { FileText, Stamp, Image as ImageIcon, Loader2, ArrowLeft, HelpCircle, PenTool } from 'lucide-react';
 import FileUpload from './components/FileUpload';
 import CanvasEditor from './components/CanvasEditor';
-import GeminiAnalyzer from './components/GeminiAnalyzer';
+import SignaturePad from './components/SignaturePad';
 import { DocumentState, Step } from './types';
 
 const App: React.FC = () => {
   const [step, setStep] = useState<Step>(Step.UPLOAD);
+  const [loadingPdf, setLoadingPdf] = useState(false);
+  const [isDrawingSignature, setIsDrawingSignature] = useState(false);
   const [docs, setDocs] = useState<DocumentState>({
     original: null,
+    originalPages: [],
     template: null,
+    templatePages: [],
     stamp: null,
+    signature: null,
   });
 
-  const handleFile = (type: keyof DocumentState, file: File) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      if (e.target?.result) {
-        setDocs(prev => ({ ...prev, [type]: e.target!.result as string }));
+  // Client-side PDF page extractor
+  const loadPdfPages = async (file: File): Promise<string[]> => {
+    return new Promise((resolve, reject) => {
+      const fileReader = new FileReader();
+      fileReader.onload = async function() {
+        try {
+          const typedarray = new Uint8Array(this.result as ArrayBuffer);
+          const pdfjsLib = (window as any).pdfjsLib;
+          if (!pdfjsLib) {
+            throw new Error("مكتبة معالجة ملفات PDF لم تكتمل بعد، يرجى الانتظار ثانية والمحاولة.");
+          }
+          const pdf = await pdfjsLib.getDocument({ data: typedarray }).promise;
+          const pageImages: string[] = [];
+          
+          for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+            const page = await pdf.getPage(pageNum);
+            const viewport = page.getViewport({ scale: 2.0 }); // High-quality 2x scaling
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            if (context) {
+              canvas.height = viewport.height;
+              canvas.width = viewport.width;
+              await page.render({
+                canvasContext: context,
+                viewport: viewport
+              }).promise;
+              pageImages.push(canvas.toDataURL('image/jpeg', 0.85));
+            }
+          }
+          resolve(pageImages);
+        } catch (err: any) {
+          console.error(err);
+          reject(err);
+        }
+      };
+      fileReader.onerror = (err) => reject(err);
+      fileReader.readAsArrayBuffer(file);
+    });
+  };
+
+  const handleOriginalUpload = async (files: File | File[]) => {
+    const fileList = Array.isArray(files) ? files : [files];
+    if (fileList.length === 0) return;
+
+    const firstFile = fileList[0];
+    const isPdf = firstFile.type === 'application/pdf' || firstFile.name.toLowerCase().endsWith('.pdf');
+
+    if (isPdf) {
+      setLoadingPdf(true);
+      try {
+        const pages = await loadPdfPages(firstFile);
+        setDocs(prev => ({ 
+          ...prev, 
+          original: pages[0] || null, 
+          originalPages: pages 
+        }));
+      } catch (err: any) {
+        alert("حدث خطأ أثناء قراءة ملف PDF: " + (err.message || err));
+      } finally {
+        setLoadingPdf(false);
       }
-    };
-    reader.readAsDataURL(file);
+    } else {
+      // It's a list of images!
+      const pagePromises = fileList.map(file => {
+        return new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            resolve(e.target?.result as string || "");
+          };
+          reader.readAsDataURL(file);
+        });
+      });
+
+      try {
+        const pages = await Promise.all(pagePromises);
+        setDocs(prev => ({ 
+          ...prev, 
+          original: pages[0] || null, 
+          originalPages: [...prev.originalPages, ...pages.filter(p => !!p)] 
+        }));
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  };
+
+  const handleTemplateUpload = async (files: File | File[]) => {
+    const fileList = Array.isArray(files) ? files : [files];
+    if (fileList.length === 0) return;
+
+    const firstFile = fileList[0];
+    const isPdf = firstFile.type === 'application/pdf' || firstFile.name.toLowerCase().endsWith('.pdf');
+
+    if (isPdf) {
+      setLoadingPdf(true);
+      try {
+        const pages = await loadPdfPages(firstFile);
+        setDocs(prev => ({ 
+          ...prev, 
+          template: pages[0] || null, 
+          templatePages: pages 
+        }));
+      } catch (err: any) {
+        alert("حدث خطأ أثناء قراءة ورقة المؤسسة PDF: " + (err.message || err));
+      } finally {
+        setLoadingPdf(false);
+      }
+    } else {
+      // It's a list of images!
+      const pagePromises = fileList.map(file => {
+        return new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            resolve(e.target?.result as string || "");
+          };
+          reader.readAsDataURL(file);
+        });
+      });
+
+      try {
+        const pages = await Promise.all(pagePromises);
+        setDocs(prev => ({ 
+          ...prev, 
+          template: pages[0] || null, 
+          templatePages: pages.filter(p => !!p) 
+        }));
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  };
+
+  const handleFile = async (type: keyof DocumentState, file: File) => {
+    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+    if (isPdf) {
+      setLoadingPdf(true);
+      try {
+        const pages = await loadPdfPages(file);
+        if (pages.length > 0) {
+          setDocs(prev => ({ ...prev, [type]: pages[0] }));
+        } else {
+          alert("لم يتم العثور على أي صفحة في ملف PDF.");
+        }
+      } catch (err: any) {
+        alert("حدث خطأ أثناء قراءة ملف PDF: " + (err.message || err));
+      } finally {
+        setLoadingPdf(false);
+      }
+    } else {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        if (e.target?.result) {
+          setDocs(prev => ({ ...prev, [type]: e.target!.result as string }));
+        }
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   const clearFile = (type: keyof DocumentState) => {
-    setDocs(prev => ({ ...prev, [type]: null }));
+    if (type === 'original') {
+      setDocs(prev => ({ ...prev, original: null, originalPages: [] }));
+    } else if (type === 'template') {
+      setDocs(prev => ({ ...prev, template: null, templatePages: [] }));
+    } else {
+      setDocs(prev => ({ ...prev, [type]: null }));
+    }
   };
 
-  const canProceed = docs.original && docs.template && docs.stamp;
+  // Stamp is NO LONGER mandatory - only original pages and template are required!
+  const canProceed = docs.originalPages.length > 0 && docs.templatePages.length > 0;
 
   return (
-    <div className="min-h-screen pb-20">
+    <div className="min-h-screen pb-20 bg-slate-50">
+      {/* Loading Overlay */}
+      {loadingPdf && (
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-slate-900/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white p-8 rounded-2xl shadow-2xl flex flex-col items-center gap-4 max-w-sm w-full text-center border border-slate-100">
+            <Loader2 className="w-12 h-12 animate-spin text-teal-600" />
+            <h4 className="text-slate-800 font-bold text-lg mt-2">جاري استخراج صفحات PDF...</h4>
+            <p className="text-sm text-slate-500 leading-relaxed">يرجى الانتظار، جاري تحويل مستند PDF إلى صفحات ذكية قابلة للتعديل والدمج.</p>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-50">
+      <header className="bg-white border-b border-slate-200 relative z-40 shadow-xs">
         <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="bg-blue-600 p-2 rounded-lg text-white">
-              <FileText size={24} />
+            <div className="bg-teal-600 p-2.5 rounded-xl text-white shadow-sm shadow-teal-200">
+              <FileText size={22} className="stroke-[2.5]" />
             </div>
-            <h1 className="text-xl font-bold text-slate-800">DocuStamp <span className="text-blue-600 font-light">Pro</span></h1>
-          </div>
-          <div className="flex items-center gap-2 text-sm text-slate-500 font-medium">
-            <span className={step === Step.UPLOAD ? "text-blue-600 font-bold" : ""}>1. رفع الملفات</span>
-            <span>&larr;</span>
-            <span className={step === Step.EDITOR ? "text-blue-600 font-bold" : ""}>2. التعديل والتصدير</span>
+            <h1 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-1.5">
+              وثيق
+              <span className="text-[10px] bg-teal-50 text-teal-700 font-bold px-2 py-0.5 rounded-md border border-teal-100">
+                للتوثيق والدمج
+              </span>
+            </h1>
           </div>
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-4 py-8">
+      <main className="max-w-6xl mx-auto px-4 py-8 flex-1">
         
         {step === Step.UPLOAD && (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="text-center mb-10">
-              <h2 className="text-3xl font-bold text-slate-800 mb-3">تجهيز المستند الرسمي</h2>
-              <p className="text-slate-500 max-w-lg mx-auto">
-                قم برفع الملفات الثلاثة المطلوبة لدمجها. تأكد من جودة الصور للحصول على أفضل نتيجة في ملف PDF النهائي.
-              </p>
+              <h2 className="text-3xl font-black text-slate-800 tracking-tight mb-2">تجهيز المستند الرسمي</h2>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
-              
-              <FileUpload
-                label="1. الورقة الأصلية"
-                subLabel="المحتوى النصي أو المستند المكتوب"
-                value={docs.original}
-                onChange={(f) => handleFile('original', f)}
-                onClear={() => clearFile('original')}
-                icon={<FileText size={40} className="text-slate-300" />}
-              />
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10">
+              {/* القسم الأول: المستندات المطلوبة */}
+              <div className="bg-white p-6 rounded-2xl border border-slate-200/60 shadow-sm flex flex-col gap-6">
+                <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
+                  <div className="w-2.5 h-6 bg-teal-600 rounded-full" />
+                  <h3 className="font-extrabold text-slate-800 text-base">المستندات المطلوب دمجها (أساسي)</h3>
+                </div>
+                
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                  <FileUpload
+                    label="1. المستند الأصلي (الأوراق)"
+                    subLabel="ملف PDF أو صور (أصل المعاملة)"
+                    accept="image/*,application/pdf"
+                    multiple={true}
+                    value={docs.originalPages.length > 0 ? docs.originalPages : null}
+                    onChange={handleOriginalUpload}
+                    onClear={() => clearFile('original')}
+                    icon={<FileText size={38} className="text-teal-500" />}
+                  />
 
-              <FileUpload
-                label="2. ورقة المؤسسة (Template)"
-                subLabel="الخلفية أو الترويسة الرسمية (Header/Footer)"
-                value={docs.template}
-                onChange={(f) => handleFile('template', f)}
-                onClear={() => clearFile('template')}
-                icon={<ImageIcon size={40} className="text-slate-300" />}
-              />
+                  <FileUpload
+                    label="2. ورقة المؤسسة الرسمية (Template)"
+                    subLabel="ملف PDF أو صور (الخلفية والترويسة)"
+                    accept="image/*,application/pdf"
+                    multiple={true}
+                    value={docs.templatePages.length > 0 ? docs.templatePages : null}
+                    onChange={handleTemplateUpload}
+                    onClear={() => clearFile('template')}
+                    icon={<ImageIcon size={38} className="text-teal-500" />}
+                  />
+                </div>
+              </div>
 
-              <FileUpload
-                label="3. ختم المؤسسة"
-                subLabel="صورة الختم (يفضل خلفية شفافة PNG)"
-                accept="image/png, image/jpeg"
-                value={docs.stamp}
-                onChange={(f) => handleFile('stamp', f)}
-                onClear={() => clearFile('stamp')}
-                icon={<Stamp size={40} className="text-slate-300" />}
-              />
+              {/* القسم الثاني: التوثيق الاختياري */}
+              <div className="bg-white p-6 rounded-2xl border border-slate-200/60 shadow-sm flex flex-col gap-6">
+                <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
+                  <div className="w-2.5 h-6 bg-emerald-600 rounded-full" />
+                  <h3 className="font-extrabold text-slate-800 text-base">أدوات التوثيق والاعتماد (اختياري)</h3>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                  <FileUpload
+                    label="3. ختم المؤسسة"
+                    subLabel="صورة الختم أو ملف PDF (يفضل خلفية شفافة PNG)"
+                    accept="image/png, image/jpeg, application/pdf"
+                    value={docs.stamp}
+                    onChange={(f) => handleFile('stamp', f as File)}
+                    onClear={() => clearFile('stamp')}
+                    icon={<Stamp size={38} className="text-amber-500" />}
+                  />
+
+                  <div className="flex flex-col gap-3">
+                    <FileUpload
+                      label="4. التوقيع الإلكتروني"
+                      subLabel="صورة توقيعك، ملف PDF أو ارسم بيدك"
+                      accept="image/png, image/jpeg, application/pdf"
+                      value={docs.signature}
+                      onChange={(f) => handleFile('signature', f as File)}
+                      onClear={() => clearFile('signature')}
+                      icon={<PenTool size={38} className="text-emerald-500" />}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setIsDrawingSignature(true)}
+                      className="flex items-center justify-center gap-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 py-2.5 px-3 rounded-xl font-bold text-xs border border-emerald-200/40 shadow-xs transition-all cursor-pointer active:scale-[0.98]"
+                    >
+                      <PenTool size={13} />
+                      أو ارسم توقيعك الحي الآن ✍️
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div className="flex flex-col items-center gap-4">
-               <button
+              <button
                 disabled={!canProceed}
                 onClick={() => setStep(Step.EDITOR)}
                 className={`
-                  flex items-center gap-3 px-10 py-4 rounded-xl font-bold text-lg transition-all shadow-xl
+                  flex items-center justify-center gap-3 px-12 py-4 rounded-xl font-bold text-lg transition-all shadow-xl
                   ${canProceed 
-                    ? 'bg-blue-600 text-white hover:bg-blue-700 hover:scale-105 shadow-blue-200' 
-                    : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                    ? 'bg-teal-600 text-white hover:bg-teal-700 hover:scale-[1.02] shadow-teal-100 cursor-pointer' 
+                    : 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'
                   }
                 `}
               >
@@ -107,18 +319,12 @@ const App: React.FC = () => {
               </button>
               
               {!canProceed && (
-                <p className="text-sm text-amber-600 bg-amber-50 px-4 py-2 rounded-lg">
-                  يرجى رفع جميع الملفات الثلاثة للمتابعة
+                <p className="text-sm font-medium text-amber-600 bg-amber-50 px-4 py-2 rounded-lg border border-amber-100 flex items-center gap-2">
+                  <HelpCircle size={16} />
+                  يرجى رفع المستند الأصلي والورقة الرسمية للمتابعة (الختم والتوقيع اختياري)
                 </p>
               )}
             </div>
-
-             {/* AI Feature Teaser/Usage */}
-             {docs.original && process.env.API_KEY && (
-                <div className="max-w-2xl mx-auto mt-12">
-                   <GeminiAnalyzer imageBase64={docs.original} />
-                </div>
-             )}
           </div>
         )}
 
@@ -127,7 +333,7 @@ const App: React.FC = () => {
             <CanvasEditor 
               documents={docs} 
               onReset={() => {
-                setDocs({ original: null, template: null, stamp: null });
+                setDocs({ original: null, originalPages: [], template: null, templatePages: [], stamp: null, signature: null });
                 setStep(Step.UPLOAD);
               }}
             />
@@ -135,6 +341,26 @@ const App: React.FC = () => {
         )}
 
       </main>
+
+      {isDrawingSignature && (
+        <SignaturePad
+          onSave={(dataUrl) => {
+            setDocs(prev => ({ ...prev, signature: dataUrl }));
+            setIsDrawingSignature(false);
+          }}
+          onClose={() => setIsDrawingSignature(false)}
+        />
+      )}
+
+      {/* Footer Support */}
+      <footer className="w-full border-t border-slate-200 bg-white py-6 mt-16 text-slate-500 text-sm">
+        <div className="max-w-6xl mx-auto px-4 flex justify-center">
+          <div className="flex items-center gap-3 text-slate-700 bg-slate-50 border border-slate-200/80 px-5 py-2.5 rounded-xl shadow-xs">
+            <span className="text-xs text-slate-500 font-bold">رقم المبرمج:</span>
+            <a href="tel:0536894854" className="font-black text-teal-600 hover:underline hover:text-teal-700 tracking-wider">0536894854</a>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 };
