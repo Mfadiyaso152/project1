@@ -187,8 +187,8 @@ const App: React.FC = () => {
     }
   };
 
-  // Stamp is NO LONGER mandatory - only original pages and template are required!
-  const canProceed = docs.originalPages.length > 0 && docs.templatePages.length > 0;
+  // Only the original document pages are absolutely required! Template pages, stamps, and signatures are completely optional.
+  const canProceed = docs.originalPages.length > 0;
 
   return (
     <div className="min-h-screen pb-20 bg-slate-50">
@@ -249,8 +249,8 @@ const App: React.FC = () => {
                   />
 
                   <FileUpload
-                    label="2. ورقة المؤسسة الرسمية (Template)"
-                    subLabel="ملف PDF أو صور (الخلفية والترويسة)"
+                    label="2. ورقة المؤسسة الرسمية (اختياري)"
+                    subLabel="ملف PDF أو صور (الخلفية والترويسة) - غير إلزامية"
                     accept="image/*,application/pdf"
                     multiple={true}
                     value={docs.templatePages.length > 0 ? docs.templatePages : null}
@@ -321,7 +321,7 @@ const App: React.FC = () => {
               {!canProceed && (
                 <p className="text-sm font-medium text-amber-600 bg-amber-50 px-4 py-2 rounded-lg border border-amber-100 flex items-center gap-2 animate-pulse">
                   <HelpCircle size={16} />
-                  يرجى رفع المستند الأصلي والورقة الرسمية للمتابعة (الختم والتوقيع اختياري)
+                  يرجى رفع المستند الأصلي للمتابعة (الخلفية الرسمية، الختم، والتوقيع اختيارية تماماً)
                 </p>
               )}
             </div>

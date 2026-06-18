@@ -34,33 +34,91 @@ const SignaturePad: React.FC<SignaturePadProps> = ({ onSave, onClose }) => {
     ctx.lineWidth = lineWidth;
   }, [activeColor, lineWidth]);
 
-  const getCoordinates = (e: React.MouseEvent | React.TouchEvent | TouchEvent | MouseEvent): { x: number; y: number } | null => {
+  // Native Touch Handlers to strictly prevent viewport scroll/bounce-back when drawing on mobile
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    let drawing = false;
+
+    const handleStart = (e: TouchEvent) => {
+      // Strongly halt standard mobile elastic scrolling or viewport movement
+      e.preventDefault();
+      
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      if (e.touches.length === 0) return;
+      
+      const touch = e.touches[0];
+      const x = (touch.clientX - rect.left) * scaleX;
+      const y = (touch.clientY - rect.top) * scaleY;
+
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        drawing = true;
+        setIsDrawing(true);
+        setHasDrawn(true);
+      }
+    };
+
+    const handleMove = (e: TouchEvent) => {
+      e.preventDefault();
+      if (!drawing) return;
+
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      if (e.touches.length === 0) return;
+
+      const touch = e.touches[0];
+      const x = (touch.clientX - rect.left) * scaleX;
+      const y = (touch.clientY - rect.top) * scaleY;
+
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.lineTo(x, y);
+        ctx.stroke();
+      }
+    };
+
+    const handleEnd = (e: TouchEvent) => {
+      e.preventDefault();
+      drawing = false;
+      setIsDrawing(false);
+    };
+
+    // Use { passive: false } natively to overcome passive event listener limitations of React/Safari
+    canvas.addEventListener('touchstart', handleStart, { passive: false });
+    canvas.addEventListener('touchmove', handleMove, { passive: false });
+    canvas.addEventListener('touchend', handleEnd, { passive: false });
+    canvas.addEventListener('touchcancel', handleEnd, { passive: false });
+
+    return () => {
+      canvas.removeEventListener('touchstart', handleStart);
+      canvas.removeEventListener('touchmove', handleMove);
+      canvas.removeEventListener('touchend', handleEnd);
+      canvas.removeEventListener('touchcancel', handleEnd);
+    };
+  }, [activeColor, lineWidth]);
+
+  const getCoordinates = (e: React.MouseEvent): { x: number; y: number } | null => {
     const canvas = canvasRef.current;
     if (!canvas) return null;
 
     const rect = canvas.getBoundingClientRect();
-    
-    // Scale factors to calculate coordinates relative to actual layout bounding box vs internal pixels
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
-    
-    // Support Touch events
-    if ('touches' in e) {
-      if (e.touches.length === 0) return null;
-      return {
-        x: (e.touches[0].clientX - rect.left) * scaleX,
-        y: (e.touches[0].clientY - rect.top) * scaleY,
-      };
-    }
 
-    // Support Mouse events
     return {
-      x: ((e as React.MouseEvent).clientX - rect.left) * scaleX,
-      y: ((e as React.MouseEvent).clientY - rect.top) * scaleY,
+      x: (e.clientX - rect.left) * scaleX,
+      y: (e.clientY - rect.top) * scaleY,
     };
   };
 
-  const startDrawing = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+  const startDrawing = (e: React.MouseEvent<HTMLCanvasElement>) => {
     e.preventDefault();
     const coords = getCoordinates(e);
     if (!coords) return;
@@ -75,7 +133,7 @@ const SignaturePad: React.FC<SignaturePadProps> = ({ onSave, onClose }) => {
     }
   };
 
-  const draw = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+  const draw = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!isDrawing) return;
     e.preventDefault();
 
@@ -190,10 +248,7 @@ const SignaturePad: React.FC<SignaturePadProps> = ({ onSave, onClose }) => {
               onMouseMove={draw}
               onMouseUp={stopDrawing}
               onMouseLeave={stopDrawing}
-              onTouchStart={startDrawing}
-              onTouchMove={draw}
-              onTouchEnd={stopDrawing}
-              className="w-full h-full bg-transparent"
+              className="w-full h-full bg-transparent touch-none"
             />
             
             {/* Drawing assistance text */}
