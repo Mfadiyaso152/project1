@@ -355,13 +355,25 @@ const App: React.FC = () => {
       {/* Floating Support Card with Soft Rounded Corners */}
       <footer className="w-full py-8 text-slate-500 text-sm animate-fade-in-up">
         <div className="max-w-6xl mx-auto px-4 flex justify-center">
-          <div className="flex items-center justify-center gap-3.5 text-slate-700 bg-white border border-slate-200/60 px-6 py-4 rounded-2xl shadow-sm hover:shadow-md transition-all duration-300 max-w-sm w-full">
-            <span className="relative flex h-2.5 w-2.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-teal-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-teal-500"></span>
-            </span>
-            <span className="text-xs text-slate-500 font-bold">رقم المبرمج للتواصل والدعم المباشر:</span>
-            <a href="tel:0536894854" className="font-extrabold text-teal-600 hover:text-teal-700 hover:underline tracking-wider text-sm transition-colors">0536894854</a>
+          <div className="flex flex-col items-center gap-3 text-center text-slate-700 bg-white border border-slate-200/60 px-6 py-5 rounded-2xl shadow-sm hover:shadow-md transition-all duration-300 max-w-md w-full">
+            <div className="flex items-center justify-center gap-2.5">
+              <span className="relative flex h-2.5 w-2.5 opacity-90">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-teal-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-teal-500"></span>
+              </span>
+              <span className="text-xs text-slate-500 font-bold">رقم المبرمج للتواصل والدعم المباشر:</span>
+              <a href="tel:0536894854" className="font-extrabold text-teal-600 hover:text-teal-700 hover:underline tracking-wider text-sm transition-colors">0536894854</a>
+            </div>
+
+            <div className="w-full h-px bg-slate-100" />
+
+            <p className="text-xs text-slate-400 font-semibold">
+              جميع حقوق فكرة وتصميم الموقع محفوظة &copy; {new Date().getFullYear()}
+            </p>
+
+            <p className="text-xs text-amber-600 bg-amber-50/70 border border-amber-100/60 px-3.5 py-2 rounded-xl font-bold leading-relaxed shadow-3xs">
+              تنويه: اشتراك التطبيق على الذمة، وللدفع كل شهر يرجى التواصل مع المبرمج.
+            </p>
           </div>
         </div>
       </footer>
