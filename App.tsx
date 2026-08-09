@@ -394,7 +394,7 @@ const App: React.FC = () => {
                 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                   <FileUpload
-                    label="1. المستند الأصلي (ملف 1)"
+                    label="1. المستند الأصلي"
                     subLabel="ملف PDF أو صور (أصل المعاملة)"
                     accept="image/*,application/pdf"
                     multiple={true}
@@ -464,99 +464,79 @@ const App: React.FC = () => {
                         استخدام التوقيع المحفوظ سابقاً ✨
                       </button>
                     )}
-
-                    {docs.signature && (
-                      <div className="flex flex-col gap-1.5 p-2.5 bg-emerald-50/60 rounded-xl border border-emerald-100">
-                        <button
-                          type="button"
-                          onClick={handleDownloadSignatureTransparent}
-                          className="flex items-center justify-center gap-1.5 text-xs font-bold text-emerald-800 hover:text-emerald-900 bg-white hover:bg-emerald-100/50 py-1.5 px-2.5 rounded-lg border border-emerald-200/80 transition-colors cursor-pointer"
-                        >
-                          <Download size={13} className="text-emerald-600" />
-                          حفظ/تنزيل التوقيع بخلفية شفافة (PNG)
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={handleSaveCurrentSignatureLocally}
-                          className="flex items-center justify-center gap-1.5 text-[11px] font-bold text-slate-600 hover:text-slate-800 bg-white/80 py-1 px-2 rounded-lg border border-slate-200 transition-colors cursor-pointer"
-                        >
-                          <BookmarkCheck size={12} className="text-slate-500" />
-                          حفظ كـ توقيع دائم في التطبيق
-                        </button>
-                      </div>
-                    )}
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* خيار إضافة أكثر من ملف للتوثيق دفعة واحدة (تحت أدوات التوثيق) */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-200/60 shadow-sm hover:shadow-md transition-all duration-300 flex flex-col gap-5 mb-10">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                <div className="flex items-center gap-2">
-                  <div className="w-2.5 h-6 bg-teal-600 rounded-full animate-pulse" />
-                  <div>
-                    <h3 className="font-extrabold text-slate-800 text-base">إضافة ملفات إضافية للتوثيق (دفعة واحدة)</h3>
-                    <p className="text-xs text-slate-500 mt-0.5">إذا كان لديك عدة ملفات وتريد توثيقها وختمها جميعاً معاً دون الحاجة لإعادة العملية كل مرة</p>
-                  </div>
-                </div>
-                {effectiveFiles.length > 1 && (
-                  <span className="text-xs bg-teal-50 text-teal-700 font-extrabold px-3 py-1 rounded-full border border-teal-100">
-                    مجموع الملفات: {effectiveFiles.length}
-                  </span>
-                )}
-              </div>
-
-              {/* Display list of uploaded files */}
-              {effectiveFiles.length > 0 && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                  {effectiveFiles.map((fileItem, idx) => (
-                    <div key={fileItem.id || idx} className="flex items-center justify-between p-3 bg-slate-50 border border-slate-200/80 rounded-xl">
-                      <div className="flex items-center gap-2.5 overflow-hidden">
-                        <div className="bg-teal-600 text-white px-2.5 py-1 rounded-lg font-bold text-xs flex-shrink-0 shadow-2xs">
-                          {fileItem.name || `ملف ${idx + 1}`}
-                        </div>
-                        <div className="truncate">
-                          <span className="text-xs text-slate-600 font-bold block">
-                            {fileItem.pages.length} {fileItem.pages.length === 1 ? 'صفحة' : 'صفحات'}
-                          </span>
-                        </div>
-                      </div>
-                      {idx > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveAdditionalFile(fileItem.id)}
-                          className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
-                          title="حذف هذا الملف الإضافي"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      )}
+            {/* خيار إضافة أكثر من ملف للتوثيق (يظهر فقط بعد رفع المستند الأصلي) */}
+            {canProceed && (
+              <div className="bg-white p-6 rounded-2xl border border-slate-200/60 shadow-sm hover:shadow-md transition-all duration-300 flex flex-col gap-5 mb-10">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2.5 h-6 bg-teal-600 rounded-full animate-pulse" />
+                    <div>
+                      <h3 className="font-extrabold text-slate-800 text-base">إضافة ملفات إضافية للتوثيق</h3>
+                      <p className="text-xs text-slate-500 mt-0.5">إذا كان لديك عدة ملفات وتريد توثيقها وختمها جميعاً معاً دون الحاجة لإعادة العملية كل مرة</p>
                     </div>
-                  ))}
+                  </div>
+                  {effectiveFiles.length > 1 && (
+                    <span className="text-xs bg-teal-50 text-teal-700 font-extrabold px-3 py-1 rounded-full border border-teal-100">
+                      مجموع الملفات: {effectiveFiles.length}
+                    </span>
+                  )}
                 </div>
-              )}
 
-              {/* Upload additional files button */}
-              <div className="flex flex-col sm:flex-row gap-3 items-center">
-                <label className="flex-1 w-full flex items-center justify-center gap-2 bg-slate-50 hover:bg-teal-50/50 text-teal-700 border-2 border-dashed border-teal-200 hover:border-teal-500 py-3.5 px-4 rounded-xl font-bold text-sm transition-all cursor-pointer">
-                  <FolderPlus size={18} />
-                  <span>+ إضافة ملفات إضافية</span>
-                  <input
-                    type="file"
-                    multiple
-                    accept="image/*,application/pdf"
-                    className="hidden"
-                    onChange={(e) => {
-                      if (e.target.files && e.target.files.length > 0) {
-                        handleAddAdditionalFiles(Array.from(e.target.files));
-                      }
-                    }}
-                  />
-                </label>
+                {/* Display list of uploaded files */}
+                {effectiveFiles.length > 0 && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                    {effectiveFiles.map((fileItem, idx) => (
+                      <div key={fileItem.id || idx} className="flex items-center justify-between p-3 bg-slate-50 border border-slate-200/80 rounded-xl">
+                        <div className="flex items-center gap-2.5 overflow-hidden">
+                          <div className="bg-teal-600 text-white px-2.5 py-1 rounded-lg font-bold text-xs flex-shrink-0 shadow-2xs">
+                            {fileItem.name || `ملف ${idx + 1}`}
+                          </div>
+                          <div className="truncate">
+                            <span className="text-xs text-slate-600 font-bold block">
+                              {fileItem.pages.length} {fileItem.pages.length === 1 ? 'صفحة' : 'صفحات'}
+                            </span>
+                          </div>
+                        </div>
+                        {idx > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveAdditionalFile(fileItem.id)}
+                            className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                            title="حذف هذا الملف الإضافي"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Upload additional files button */}
+                <div className="flex flex-col sm:flex-row gap-3 items-center">
+                  <label className="flex-1 w-full flex items-center justify-center gap-2 bg-slate-50 hover:bg-teal-50/50 text-teal-700 border-2 border-dashed border-teal-200 hover:border-teal-500 py-3.5 px-4 rounded-xl font-bold text-sm transition-all cursor-pointer">
+                    <FolderPlus size={18} />
+                    <span>+ إضافة ملفات إضافية</span>
+                    <input
+                      type="file"
+                      multiple
+                      accept="image/*,application/pdf"
+                      className="hidden"
+                      onChange={(e) => {
+                        if (e.target.files && e.target.files.length > 0) {
+                          handleAddAdditionalFiles(Array.from(e.target.files));
+                        }
+                      }}
+                    />
+                  </label>
+                </div>
               </div>
-            </div>
+            )}
 
             <div className="flex flex-col items-center gap-4">
               <button
@@ -573,13 +553,6 @@ const App: React.FC = () => {
                 المتابعة إلى المحرر لتحديد مكان الختم والتوقيع
                 <ArrowLeft size={20} />
               </button>
-              
-              {!canProceed && (
-                <p className="text-sm font-medium text-amber-600 bg-amber-50 px-4 py-2 rounded-lg border border-amber-100 flex items-center gap-2 animate-pulse">
-                  <HelpCircle size={16} />
-                  يرجى رفع المستند الأصلي للمتابعة (الخلفية الرسمية، الختم، والتوقيع اختيارية تماماً)
-                </p>
-              )}
             </div>
           </div>
         )}
