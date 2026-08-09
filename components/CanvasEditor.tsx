@@ -38,9 +38,73 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset }) => {
   const totalPagesInCurrentFile = currentFile?.pages.length || 0;
   const activeKey = `${activeFileIndex}-${currentPageIndex}`;
 
-  // Page Selection / Scope mode for stamp & signature
-  const [targetPageMode, setTargetPageMode] = useState<'all' | 'current' | 'first' | 'last' | 'custom'>('all');
-  const [customPagesInput, setCustomPagesInput] = useState<string>('1');
+  // Per-file selected pages state: { [fileIndex: number]: boolean[] }
+  const [selectedPages, setSelectedPages] = useState<{ [fileIdx: number]: boolean[] }>({});
+
+  // Sync selectedPages state when effectiveFiles changes
+  useEffect(() => {
+    setSelectedPages(prev => {
+      const updated: { [fileIdx: number]: boolean[] } = {};
+      effectiveFiles.forEach((file, fIdx) => {
+        const pageCount = file.pages.length;
+        if (prev[fIdx] && prev[fIdx].length === pageCount) {
+          updated[fIdx] = prev[fIdx];
+        } else {
+          updated[fIdx] = new Array(pageCount).fill(true);
+        }
+      });
+      return updated;
+    });
+  }, [effectiveFiles]);
+
+  // Helper: check if a page receives stamp and signature
+  const isPageTargeted = useCallback((fileIdx: number, pageIdx: number): boolean => {
+    if (!selectedPages[fileIdx]) return true;
+    return selectedPages[fileIdx][pageIdx] ?? true;
+  }, [selectedPages]);
+
+  const togglePageSelection = (fIdx: number, pIdx: number) => {
+    setSelectedPages(prev => {
+      const filePages = prev[fIdx] ? [...prev[fIdx]] : new Array(effectiveFiles[fIdx]?.pages.length || 1).fill(true);
+      filePages[pIdx] = !filePages[pIdx];
+      return { ...prev, [fIdx]: filePages };
+    });
+  };
+
+  const selectAllPagesForFile = (fIdx: number, val: boolean) => {
+    setSelectedPages(prev => {
+      const pageCount = effectiveFiles[fIdx]?.pages.length || 0;
+      return { ...prev, [fIdx]: new Array(pageCount).fill(val) };
+    });
+  };
+
+  const selectFirstPageOnlyForFile = (fIdx: number) => {
+    setSelectedPages(prev => {
+      const pageCount = effectiveFiles[fIdx]?.pages.length || 0;
+      const arr = new Array(pageCount).fill(false);
+      if (pageCount > 0) arr[0] = true;
+      return { ...prev, [fIdx]: arr };
+    });
+  };
+
+  const selectLastPageOnlyForFile = (fIdx: number) => {
+    setSelectedPages(prev => {
+      const pageCount = effectiveFiles[fIdx]?.pages.length || 0;
+      const arr = new Array(pageCount).fill(false);
+      if (pageCount > 0) arr[pageCount - 1] = true;
+      return { ...prev, [fIdx]: arr };
+    });
+  };
+
+  const selectAllAllFiles = (val: boolean) => {
+    setSelectedPages(() => {
+      const updated: { [fileIdx: number]: boolean[] } = {};
+      effectiveFiles.forEach((file, fIdx) => {
+        updated[fIdx] = new Array(file.pages.length).fill(val);
+      });
+      return updated;
+    });
+  };
 
   // Per-page & per-file configurations for Stamp & Signature
   const [stampConfigs, setStampConfigs] = useState<{ [key: string]: StampPosition }>({});
@@ -56,23 +120,6 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset }) => {
   // Customization
   const [originalOpacity, setOriginalOpacity] = useState(1);
   const [isExporting, setIsExporting] = useState(false);
-
-  // Helper: check if a page receives stamp and signature
-  const isPageTargeted = useCallback((fileIdx: number, pageIdx: number, totalFilePages: number): boolean => {
-    if (targetPageMode === 'all') return true;
-    if (targetPageMode === 'current') return fileIdx === activeFileIndex && pageIdx === currentPageIndex;
-    if (targetPageMode === 'first') return pageIdx === 0;
-    if (targetPageMode === 'last') return pageIdx === totalFilePages - 1;
-    if (targetPageMode === 'custom') {
-      const parsed = customPagesInput
-        .split(/[,;\s]+/)
-        .map(p => parseInt(p.trim(), 10))
-        .filter(n => !isNaN(n));
-      const pageNum1Based = pageIdx + 1;
-      return parsed.includes(pageNum1Based);
-    }
-    return true;
-  }, [targetPageMode, activeFileIndex, currentPageIndex, customPagesInput]);
 
   // Helper: Get template page for specific global page index
   const getTemplateForPage = (index: number): string | null => {
@@ -607,80 +654,120 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset }) => {
       <div className="w-full lg:w-80 flex flex-col gap-5">
         
         {/* Page Scope Selection Section */}
-        <div className="bg-white p-5 rounded-xl shadow-2xs border border-slate-200">
-          <h3 className="font-bold text-sm text-slate-900 mb-3 border-b border-slate-100 pb-2 flex items-center gap-2">
-            <Layers size={16} className="text-teal-700" />
-            <span>تحديد الصفحات المراد ختمها وتوقيعها</span>
-          </h3>
+        <div className="bg-white p-5 rounded-xl shadow-2xs border border-slate-200 flex flex-col gap-3">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+            <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
+              <Layers size={16} className="text-teal-700" />
+              <span>تحديد الصفحات المراد ختمها وتوقيعها</span>
+            </h3>
 
-          <div className="flex flex-col gap-2">
-            <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
-              <input 
-                type="radio" 
-                name="targetPageMode" 
-                checked={targetPageMode === 'all'} 
-                onChange={() => setTargetPageMode('all')}
-                className="text-teal-700 focus:ring-teal-700"
-              />
-              <span>جميع الصفحات في كل الملفات</span>
-            </label>
-
-            <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
-              <input 
-                type="radio" 
-                name="targetPageMode" 
-                checked={targetPageMode === 'current'} 
-                onChange={() => setTargetPageMode('current')}
-                className="text-teal-700 focus:ring-teal-700"
-              />
-              <span>الصفحة الحالية المعروضة فقط</span>
-            </label>
-
-            <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
-              <input 
-                type="radio" 
-                name="targetPageMode" 
-                checked={targetPageMode === 'first'} 
-                onChange={() => setTargetPageMode('first')}
-                className="text-teal-700 focus:ring-teal-700"
-              />
-              <span>الصفحة الأولى فقط من كل ملف</span>
-            </label>
-
-            <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
-              <input 
-                type="radio" 
-                name="targetPageMode" 
-                checked={targetPageMode === 'last'} 
-                onChange={() => setTargetPageMode('last')}
-                className="text-teal-700 focus:ring-teal-700"
-              />
-              <span>الصفحة الأخيرة فقط من كل ملف</span>
-            </label>
-
-            <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
-              <input 
-                type="radio" 
-                name="targetPageMode" 
-                checked={targetPageMode === 'custom'} 
-                onChange={() => setTargetPageMode('custom')}
-                className="text-teal-700 focus:ring-teal-700"
-              />
-              <span>تحديد أرقام صفحات معينة</span>
-            </label>
-
-            {targetPageMode === 'custom' && (
-              <div className="mt-2 pt-2 border-t border-slate-100">
-                <label className="text-[11px] font-semibold text-slate-500 mb-1 block">أرقام الصفحات (مثال: 1, 3, 5):</label>
-                <input 
-                  type="text" 
-                  value={customPagesInput}
-                  onChange={(e) => setCustomPagesInput(e.target.value)}
-                  placeholder="مثال: 1, 2"
-                  className="w-full text-xs p-2 border border-slate-300 rounded focus:outline-none focus:border-teal-700"
-                />
+            {effectiveFiles.length > 1 && (
+              <div className="flex items-center gap-2 text-xs font-bold">
+                <button
+                  type="button"
+                  onClick={() => selectAllAllFiles(true)}
+                  className="text-teal-700 hover:underline cursor-pointer"
+                >
+                  تحديد الكل
+                </button>
+                <span className="text-slate-300">|</span>
+                <button
+                  type="button"
+                  onClick={() => selectAllAllFiles(false)}
+                  className="text-amber-700 hover:underline cursor-pointer"
+                >
+                  إلغاء الكل
+                </button>
               </div>
             )}
+          </div>
+
+          <p className="text-xs text-slate-500">
+            حدد الصفحات المطلوبة لكل ملف (انقر على رقم الصفحة للتفعيل أو الإلغاء):
+          </p>
+
+          <div className="flex flex-col gap-3.5 max-h-[380px] overflow-y-auto pr-1">
+            {effectiveFiles.map((fileItem, fIdx) => (
+              <div key={fileItem.id || fIdx} className="p-3 bg-slate-50 rounded-xl border border-slate-200/90 flex flex-col gap-2.5">
+                <div className="flex items-center justify-between border-b border-slate-200/80 pb-2">
+                  <div className="flex items-center gap-2 overflow-hidden">
+                    <FileText size={15} className="text-teal-700 flex-shrink-0" />
+                    <span className="font-bold text-xs text-slate-800 truncate" title={fileItem.name}>
+                      {fileItem.name || `ملف ${fIdx + 1}`}
+                    </span>
+                    <span className="text-[10px] bg-teal-100/70 text-teal-800 font-bold px-1.5 py-0.5 rounded flex-shrink-0">
+                      {fileItem.pages.length} {fileItem.pages.length === 1 ? 'صفحة' : 'صفحات'}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 text-[11px] font-bold flex-shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => selectAllPagesForFile(fIdx, true)}
+                      className="text-teal-700 hover:underline cursor-pointer"
+                    >
+                      الكل
+                    </button>
+                    <span className="text-slate-300">|</span>
+                    <button
+                      type="button"
+                      onClick={() => selectFirstPageOnlyForFile(fIdx)}
+                      className="text-slate-600 hover:underline cursor-pointer"
+                    >
+                      الأولى
+                    </button>
+                    <span className="text-slate-300">|</span>
+                    <button
+                      type="button"
+                      onClick={() => selectLastPageOnlyForFile(fIdx)}
+                      className="text-slate-600 hover:underline cursor-pointer"
+                    >
+                      الأخيرة
+                    </button>
+                    <span className="text-slate-300">|</span>
+                    <button
+                      type="button"
+                      onClick={() => selectAllPagesForFile(fIdx, false)}
+                      className="text-amber-700 hover:underline cursor-pointer"
+                    >
+                      إلغاء
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-4 sm:grid-cols-5 gap-1.5">
+                  {fileItem.pages.map((_, pIdx) => {
+                    const isSelected = isPageTargeted(fIdx, pIdx);
+                    const isCurrent = activeFileIndex === fIdx && currentPageIndex === pIdx;
+                    return (
+                      <button
+                        key={pIdx}
+                        type="button"
+                        onClick={() => {
+                          togglePageSelection(fIdx, pIdx);
+                          setActiveFileIndex(fIdx);
+                          setCurrentPageIndex(pIdx);
+                        }}
+                        className={`flex items-center justify-center gap-1 p-2 rounded-lg border text-xs font-bold transition-all cursor-pointer ${
+                          isSelected
+                            ? 'bg-teal-700 text-white border-teal-700 shadow-2xs'
+                            : 'bg-white border-slate-300 text-slate-500 hover:bg-slate-100'
+                        } ${isCurrent ? 'ring-2 ring-amber-500 ring-offset-1' : ''}`}
+                        title={`صفحة ${pIdx + 1}`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => {}}
+                          className="w-3.5 h-3.5 rounded text-teal-600 focus:ring-teal-600 cursor-pointer pointer-events-none accent-teal-600"
+                        />
+                        <span>ص {pIdx + 1}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
 
