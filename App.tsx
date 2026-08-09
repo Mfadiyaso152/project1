@@ -1,22 +1,46 @@
-import React, { useState } from 'react';
-import { FileText, Stamp, Image as ImageIcon, Loader2, ArrowLeft, HelpCircle, PenTool } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { 
+  FileText, 
+  Stamp, 
+  Image as ImageIcon, 
+  Loader2, 
+  ArrowLeft, 
+  HelpCircle, 
+  PenTool, 
+  FolderPlus, 
+  Trash2, 
+  Download, 
+  BookmarkCheck,
+  Check
+} from 'lucide-react';
 import FileUpload from './components/FileUpload';
 import CanvasEditor from './components/CanvasEditor';
 import SignaturePad from './components/SignaturePad';
-import { DocumentState, Step } from './types';
+import { DocumentState, Step, DocumentFileItem } from './types';
 
 const App: React.FC = () => {
   const [step, setStep] = useState<Step>(Step.UPLOAD);
   const [loadingPdf, setLoadingPdf] = useState(false);
   const [isDrawingSignature, setIsDrawingSignature] = useState(false);
+  const [savedSignature, setSavedSignature] = useState<string | null>(null);
+
   const [docs, setDocs] = useState<DocumentState>({
     original: null,
     originalPages: [],
+    files: [],
     template: null,
     templatePages: [],
     stamp: null,
     signature: null,
   });
+
+  // Check for stored signature on mount
+  useEffect(() => {
+    const saved = localStorage.getItem('docustamp_saved_signature');
+    if (saved) {
+      setSavedSignature(saved);
+    }
+  }, []);
 
   // Client-side PDF page extractor
   const loadPdfPages = async (file: File): Promise<string[]> => {
@@ -69,11 +93,17 @@ const App: React.FC = () => {
       setLoadingPdf(true);
       try {
         const pages = await loadPdfPages(firstFile);
-        setDocs(prev => ({ 
-          ...prev, 
-          original: pages[0] || null, 
-          originalPages: pages 
-        }));
+        setDocs(prev => {
+          const file1: DocumentFileItem = { id: 'file-1', name: 'ملف 1', pages };
+          const otherFiles = prev.files.slice(1);
+          const updatedFiles = [file1, ...otherFiles].map((f, idx) => ({ ...f, name: `ملف ${idx + 1}` }));
+          return {
+            ...prev,
+            original: pages[0] || null,
+            originalPages: pages,
+            files: updatedFiles
+          };
+        });
       } catch (err: any) {
         alert("حدث خطأ أثناء قراءة ملف PDF: " + (err.message || err));
       } finally {
@@ -93,15 +123,97 @@ const App: React.FC = () => {
 
       try {
         const pages = await Promise.all(pagePromises);
-        setDocs(prev => ({ 
-          ...prev, 
-          original: pages[0] || null, 
-          originalPages: [...prev.originalPages, ...pages.filter(p => !!p)] 
-        }));
+        const validPages = pages.filter(p => !!p);
+        setDocs(prev => {
+          const file1: DocumentFileItem = { id: 'file-1', name: 'ملف 1', pages: validPages };
+          const otherFiles = prev.files.slice(1);
+          const updatedFiles = [file1, ...otherFiles].map((f, idx) => ({ ...f, name: `ملف ${idx + 1}` }));
+          return {
+            ...prev,
+            original: validPages[0] || null,
+            originalPages: validPages,
+            files: updatedFiles
+          };
+        });
       } catch (err) {
         console.error(err);
       }
     }
+  };
+
+  // Handler for uploading additional files (ملف 2, ملف 3...)
+  const handleAddAdditionalFiles = async (files: File | File[]) => {
+    const fileList = Array.isArray(files) ? files : [files];
+    if (fileList.length === 0) return;
+
+    setLoadingPdf(true);
+    try {
+      const newItems: DocumentFileItem[] = [];
+      let baseCount = docs.files.length;
+      if (baseCount === 0 && docs.originalPages.length > 0) {
+        baseCount = 1;
+      }
+
+      for (let i = 0; i < fileList.length; i++) {
+        const file = fileList[i];
+        const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+        let pages: string[] = [];
+
+        if (isPdf) {
+          pages = await loadPdfPages(file);
+        } else {
+          pages = await new Promise<string[]>((resolve) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+              resolve([e.target?.result as string || ""]);
+            };
+            reader.readAsDataURL(file);
+          });
+        }
+
+        if (pages.length > 0) {
+          const nextIndex = baseCount + newItems.length + 1;
+          newItems.push({
+            id: `file-${Date.now()}-${i}`,
+            name: `ملف ${nextIndex}`,
+            pages
+          });
+        }
+      }
+
+      setDocs(prev => {
+        let currentFiles = [...prev.files];
+        if (currentFiles.length === 0 && prev.originalPages.length > 0) {
+          currentFiles = [{ id: 'file-1', name: 'ملف 1', pages: prev.originalPages }];
+        }
+        const updatedFiles = [...currentFiles, ...newItems].map((f, idx) => ({
+          ...f,
+          name: `ملف ${idx + 1}`
+        }));
+
+        return {
+          ...prev,
+          files: updatedFiles,
+          originalPages: updatedFiles[0]?.pages || prev.originalPages
+        };
+      });
+    } catch (err: any) {
+      alert("حدث خطأ أثناء رفع الملفات الإضافية: " + (err.message || err));
+    } finally {
+      setLoadingPdf(false);
+    }
+  };
+
+  const handleRemoveAdditionalFile = (fileId: string) => {
+    setDocs(prev => {
+      const filtered = prev.files.filter(f => f.id !== fileId);
+      const reindexed = filtered.map((f, idx) => ({ ...f, name: `ملف ${idx + 1}` }));
+      return {
+        ...prev,
+        files: reindexed,
+        originalPages: reindexed[0]?.pages || []
+      };
+    });
   };
 
   const handleTemplateUpload = async (files: File | File[]) => {
@@ -170,7 +282,12 @@ const App: React.FC = () => {
       const reader = new FileReader();
       reader.onload = (e) => {
         if (e.target?.result) {
-          setDocs(prev => ({ ...prev, [type]: e.target!.result as string }));
+          const res = e.target!.result as string;
+          setDocs(prev => ({ ...prev, [type]: res }));
+          if (type === 'signature') {
+            localStorage.setItem('docustamp_saved_signature', res);
+            setSavedSignature(res);
+          }
         }
       };
       reader.readAsDataURL(file);
@@ -179,7 +296,7 @@ const App: React.FC = () => {
 
   const clearFile = (type: keyof DocumentState) => {
     if (type === 'original') {
-      setDocs(prev => ({ ...prev, original: null, originalPages: [] }));
+      setDocs(prev => ({ ...prev, original: null, originalPages: [], files: prev.files.slice(1) }));
     } else if (type === 'template') {
       setDocs(prev => ({ ...prev, template: null, templatePages: [] }));
     } else {
@@ -187,8 +304,47 @@ const App: React.FC = () => {
     }
   };
 
-  // Only the original document pages are absolutely required! Template pages, stamps, and signatures are completely optional.
-  const canProceed = docs.originalPages.length > 0;
+  const handleUseSavedSignature = () => {
+    if (savedSignature) {
+      setDocs(prev => ({ ...prev, signature: savedSignature }));
+    }
+  };
+
+  const handleSaveCurrentSignatureLocally = () => {
+    if (docs.signature) {
+      localStorage.setItem('docustamp_saved_signature', docs.signature);
+      setSavedSignature(docs.signature);
+      alert('تم حفظ التوقيع في التطبيق بنجاح بخلفية شفافة لاستخدامه في المستندات القادمة!');
+    }
+  };
+
+  const handleDownloadSignatureTransparent = () => {
+    if (!docs.signature) return;
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(img, 0, 0);
+        const dataUrl = canvas.toDataURL('image/png');
+        const a = document.createElement('a');
+        a.href = dataUrl;
+        a.download = 'توقيع_بخلفية_شفافة.png';
+        a.click();
+      }
+    };
+    img.src = docs.signature;
+  };
+
+  // Check effective files for proceed readiness
+  const effectiveFiles = docs.files.length > 0 
+    ? docs.files 
+    : (docs.originalPages.length > 0 ? [{ id: 'file-1', name: 'ملف 1', pages: docs.originalPages }] : []);
+
+  const canProceed = effectiveFiles.length > 0 && effectiveFiles[0].pages.length > 0;
 
   return (
     <div className="min-h-screen pb-20 bg-slate-50">
@@ -228,7 +384,7 @@ const App: React.FC = () => {
               <h2 className="text-3xl font-black text-slate-800 tracking-tight mb-2">تجهيز المستند الرسمي</h2>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
               {/* القسم الأول: المستندات المطلوبة */}
               <div className="bg-white p-6 rounded-2xl border border-slate-200/60 shadow-sm hover:shadow-md transition-all duration-300 flex flex-col gap-6">
                 <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
@@ -238,7 +394,7 @@ const App: React.FC = () => {
                 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                   <FileUpload
-                    label="1. المستند الأصلي (الأوراق)"
+                    label="1. المستند الأصلي (ملف 1)"
                     subLabel="ملف PDF أو صور (أصل المعاملة)"
                     accept="image/*,application/pdf"
                     multiple={true}
@@ -297,8 +453,108 @@ const App: React.FC = () => {
                       <PenTool size={13} />
                       أو ارسم توقيعك الحي الآن ✍️
                     </button>
+
+                    {savedSignature && !docs.signature && (
+                      <button
+                        type="button"
+                        onClick={handleUseSavedSignature}
+                        className="flex items-center justify-center gap-2 bg-amber-50 hover:bg-amber-100 text-amber-800 py-2 px-3 rounded-xl font-bold text-xs border border-amber-200 transition-all cursor-pointer"
+                      >
+                        <BookmarkCheck size={14} className="text-amber-600" />
+                        استخدام التوقيع المحفوظ سابقاً ✨
+                      </button>
+                    )}
+
+                    {docs.signature && (
+                      <div className="flex flex-col gap-1.5 p-2.5 bg-emerald-50/60 rounded-xl border border-emerald-100">
+                        <button
+                          type="button"
+                          onClick={handleDownloadSignatureTransparent}
+                          className="flex items-center justify-center gap-1.5 text-xs font-bold text-emerald-800 hover:text-emerald-900 bg-white hover:bg-emerald-100/50 py-1.5 px-2.5 rounded-lg border border-emerald-200/80 transition-colors cursor-pointer"
+                        >
+                          <Download size={13} className="text-emerald-600" />
+                          حفظ/تنزيل التوقيع بخلفية شفافة (PNG)
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={handleSaveCurrentSignatureLocally}
+                          className="flex items-center justify-center gap-1.5 text-[11px] font-bold text-slate-600 hover:text-slate-800 bg-white/80 py-1 px-2 rounded-lg border border-slate-200 transition-colors cursor-pointer"
+                        >
+                          <BookmarkCheck size={12} className="text-slate-500" />
+                          حفظ كـ توقيع دائم في التطبيق
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
+              </div>
+            </div>
+
+            {/* خيار إضافة أكثر من ملف للتوثيق دفعة واحدة (تحت أدوات التوثيق) */}
+            <div className="bg-white p-6 rounded-2xl border border-slate-200/60 shadow-sm hover:shadow-md transition-all duration-300 flex flex-col gap-5 mb-10">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-2.5 h-6 bg-teal-600 rounded-full animate-pulse" />
+                  <div>
+                    <h3 className="font-extrabold text-slate-800 text-base">إضافة ملفات إضافية للتوثيق (دفعة واحدة)</h3>
+                    <p className="text-xs text-slate-500 mt-0.5">إذا كان لديك عدة ملفات وتريد توثيقها وختمها جميعاً معاً دون الحاجة لإعادة العملية كل مرة</p>
+                  </div>
+                </div>
+                {effectiveFiles.length > 1 && (
+                  <span className="text-xs bg-teal-50 text-teal-700 font-extrabold px-3 py-1 rounded-full border border-teal-100">
+                    مجموع الملفات: {effectiveFiles.length}
+                  </span>
+                )}
+              </div>
+
+              {/* Display list of uploaded files */}
+              {effectiveFiles.length > 0 && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                  {effectiveFiles.map((fileItem, idx) => (
+                    <div key={fileItem.id || idx} className="flex items-center justify-between p-3 bg-slate-50 border border-slate-200/80 rounded-xl">
+                      <div className="flex items-center gap-2.5 overflow-hidden">
+                        <div className="bg-teal-600 text-white px-2.5 py-1 rounded-lg font-bold text-xs flex-shrink-0 shadow-2xs">
+                          {fileItem.name || `ملف ${idx + 1}`}
+                        </div>
+                        <div className="truncate">
+                          <span className="text-xs text-slate-600 font-bold block">
+                            {fileItem.pages.length} {fileItem.pages.length === 1 ? 'صفحة' : 'صفحات'}
+                          </span>
+                        </div>
+                      </div>
+                      {idx > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveAdditionalFile(fileItem.id)}
+                          className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                          title="حذف هذا الملف الإضافي"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Upload additional files button */}
+              <div className="flex flex-col sm:flex-row gap-3 items-center">
+                <label className="flex-1 w-full flex items-center justify-center gap-2 bg-slate-50 hover:bg-teal-50/50 text-teal-700 border-2 border-dashed border-teal-200 hover:border-teal-500 py-3.5 px-4 rounded-xl font-bold text-sm transition-all cursor-pointer">
+                  <FolderPlus size={18} />
+                  <span>+ إضافة ملفات إضافية</span>
+                  <input
+                    type="file"
+                    multiple
+                    accept="image/*,application/pdf"
+                    className="hidden"
+                    onChange={(e) => {
+                      if (e.target.files && e.target.files.length > 0) {
+                        handleAddAdditionalFiles(Array.from(e.target.files));
+                      }
+                    }}
+                  />
+                </label>
               </div>
             </div>
 
@@ -314,7 +570,7 @@ const App: React.FC = () => {
                   }
                 `}
               >
-                المتابعة إلى المحرر
+                المتابعة إلى المحرر لتحديد مكان الختم والتوقيع
                 <ArrowLeft size={20} />
               </button>
               
@@ -333,7 +589,7 @@ const App: React.FC = () => {
             <CanvasEditor 
               documents={docs} 
               onReset={() => {
-                setDocs({ original: null, originalPages: [], template: null, templatePages: [], stamp: null, signature: null });
+                setDocs({ original: null, originalPages: [], files: [], template: null, templatePages: [], stamp: null, signature: null });
                 setStep(Step.UPLOAD);
               }}
             />
@@ -346,13 +602,15 @@ const App: React.FC = () => {
         <SignaturePad
           onSave={(dataUrl) => {
             setDocs(prev => ({ ...prev, signature: dataUrl }));
+            localStorage.setItem('docustamp_saved_signature', dataUrl);
+            setSavedSignature(dataUrl);
             setIsDrawingSignature(false);
           }}
           onClose={() => setIsDrawingSignature(false)}
         />
       )}
 
-      {/* Floating Support Card with Soft Rounded Corners */}
+      {/* Floating Support Card */}
       <footer className="w-full py-8 text-slate-500 text-sm animate-fade-in-up">
         <div className="max-w-6xl mx-auto px-4 flex justify-center">
           <div className="flex flex-col items-center gap-3 text-center text-slate-700 bg-white border border-slate-200/60 px-6 py-5 rounded-2xl shadow-sm hover:shadow-md transition-all duration-300 max-w-md w-full">
@@ -369,10 +627,6 @@ const App: React.FC = () => {
 
             <p className="text-xs text-slate-400 font-semibold">
               جميع حقوق فكرة وتصميم الموقع محفوظة &copy; {new Date().getFullYear()}
-            </p>
-
-            <p className="text-xs text-amber-600 bg-amber-50/70 border border-amber-100/60 px-3.5 py-2 rounded-xl font-bold leading-relaxed shadow-3xs">
-              تنويه: اشتراك التطبيق على الذمة، وللدفع كل شهر يرجى التواصل مع المبرمج.
             </p>
           </div>
         </div>
