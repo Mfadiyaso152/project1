@@ -1,13 +1,6 @@
-export interface DocumentFileItem {
-  id: string;
-  name: string;
-  pages: string[];
-}
-
 export interface DocumentState {
   original: string | null;
   originalPages: string[];
-  files: DocumentFileItem[];
   template: string | null;
   templatePages: string[];
   stamp: string | null;

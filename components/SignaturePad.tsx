@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { RefreshCw, Check, X, PenTool, Download, BookmarkCheck } from 'lucide-react';
+import { RefreshCw, Check, X, PenTool } from 'lucide-react';
 
 interface SignaturePadProps {
   onSave: (signatureDataUrl: string) => void;
@@ -19,7 +19,6 @@ const SignaturePad: React.FC<SignaturePadProps> = ({ onSave, onClose }) => {
   const [activeColor, setActiveColor] = useState('#1e3a8a'); // Default professional dark blue ink
   const [lineWidth, setLineWidth] = useState(3.5);
   const [hasDrawn, setHasDrawn] = useState(false);
-  const [savedNotice, setSavedNotice] = useState(false);
 
   // Initialize Canvas with proper high-DPI scaling
   useEffect(() => {
@@ -168,23 +167,7 @@ const SignaturePad: React.FC<SignaturePadProps> = ({ onSave, onClose }) => {
 
     // Direct save with transparent background
     const dataUrl = canvas.toDataURL('image/png');
-    // Also store to localStorage for quick re-use
-    localStorage.setItem('docustamp_saved_signature', dataUrl);
     onSave(dataUrl);
-  };
-
-  const handleDownloadTransparent = () => {
-    const canvas = canvasRef.current;
-    if (!canvas || !hasDrawn) return;
-
-    const dataUrl = canvas.toDataURL('image/png');
-    const link = document.createElement('a');
-    link.download = 'توقيع_بخلفية_شفافة.png';
-    link.href = dataUrl;
-    link.click();
-
-    setSavedNotice(true);
-    setTimeout(() => setSavedNotice(false), 3000);
   };
 
   return (
@@ -279,31 +262,18 @@ const SignaturePad: React.FC<SignaturePadProps> = ({ onSave, onClose }) => {
         </div>
 
         {/* Footer actions */}
-        <div className="p-5 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-50/50">
-          <div className="flex items-center gap-2 w-full sm:w-auto">
-            <button
-              type="button"
-              onClick={clearCanvas}
-              disabled={!hasDrawn}
-              className="flex items-center justify-center gap-1.5 px-3 py-2 border border-slate-200 hover:bg-slate-100 disabled:opacity-45 disabled:hover:bg-transparent text-slate-700 font-bold text-xs rounded-xl transition-all cursor-pointer flex-1 sm:flex-none"
-            >
-              <RefreshCw size={14} />
-              مسح
-            </button>
+        <div className="p-5 border-t border-slate-100 flex items-center justify-between bg-slate-50/50">
+          <button
+            type="button"
+            onClick={clearCanvas}
+            disabled={!hasDrawn}
+            className="flex items-center gap-1.5 px-3.5 py-2 border border-slate-200 hover:bg-slate-100 disabled:opacity-45 disabled:hover:bg-transparent text-slate-700 font-bold text-xs rounded-xl transition-all cursor-pointer"
+          >
+            <RefreshCw size={14} />
+            إعادة المسح والبدء مجدداً
+          </button>
 
-            <button
-              type="button"
-              onClick={handleDownloadTransparent}
-              disabled={!hasDrawn}
-              className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 disabled:opacity-45 disabled:hover:bg-amber-50 font-bold text-xs rounded-xl transition-all cursor-pointer flex-1 sm:flex-none"
-              title="تحميل صورة التوقيع برسم شفاف لاستخدامها في أي مكان"
-            >
-              <Download size={14} className="text-amber-600" />
-              حفظ وتنزيل PNG شفاف
-            </button>
-          </div>
-
-          <div className="flex gap-2 w-full sm:w-auto justify-end">
+          <div className="flex gap-2">
             <button
               type="button"
               onClick={onClose}
@@ -315,9 +285,9 @@ const SignaturePad: React.FC<SignaturePadProps> = ({ onSave, onClose }) => {
               type="button"
               onClick={handleSave}
               disabled={!hasDrawn}
-              className="flex items-center justify-center gap-1.5 px-5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:hover:bg-emerald-600 font-bold text-xs text-white rounded-xl shadow-md shadow-emerald-100 transition-all cursor-pointer"
+              className="flex items-center gap-1.5 px-6 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:hover:bg-emerald-600 font-bold text-xs text-white rounded-xl shadow-md shadow-emerald-100 transition-all cursor-pointer"
             >
-              إدراج على المستند
+              حفظ وتثبيت التوقيع
             </button>
           </div>
         </div>
