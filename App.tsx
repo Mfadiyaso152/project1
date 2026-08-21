@@ -1,25 +1,37 @@
-import React, { useState } from 'react';
-import { FileText, Stamp, Image as ImageIcon, Loader2, ArrowLeft, HelpCircle, PenTool } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { FileText, Stamp, Image as ImageIcon, Loader2, ArrowLeft, PenTool, Sparkles, MoreVertical, ListOrdered, DollarSign, Key, Users } from 'lucide-react';
 import FileUpload from './components/FileUpload';
 import CanvasEditor from './components/CanvasEditor';
 import SignaturePad from './components/SignaturePad';
-import { DocCreator } from './components/DocCreator';
-import { DocumentState, Step } from './types';
+import { LandingView } from './components/LandingView';
+import { AuthFlow } from './components/AuthFlow';
+import { AccountView } from './components/AccountView';
+import { AdminRequestsView, AdminRevenueView, AdminCodesView, AdminUsersView } from './components/AdminViews';
+import { BottomNav } from './components/BottomNav';
+import { DocumentState, Step, User } from './types';
+import { getCurrentUser, setCurrentUser, canUserProcessFile, updateUserInDb, createSubscriptionRequest } from './authService';
 
 const App: React.FC = () => {
-  const [step, setStep] = useState<Step>(Step.UPLOAD);
+  const [currentUser, setUser] = useState<User | null>(() => getCurrentUser());
+  const [step, setStep] = useState<Step>(currentUser ? Step.UPLOAD : Step.LANDING);
+  
   const [loadingPdf, setLoadingPdf] = useState(false);
   const [isDrawingSignature, setIsDrawingSignature] = useState(false);
+  const [limitWarning, setLimitWarning] = useState<string | null>(null);
+
+  const [adminMenuOpen, setAdminMenuOpen] = useState(false);
+
   const [docs, setDocs] = useState<DocumentState>({
-    original: null,
-    originalPages: [],
-    template: null,
-    templatePages: [],
-    stamp: null,
-    signature: null,
+    original: null, originalPages: [],
+    template: null, templatePages: [],
+    stamp: null, signature: null,
   });
 
-  // Client-side PDF page extractor
+  const refreshUser = () => {
+    setUser(getCurrentUser());
+  };
+
+  // PDF Loading Logic
   const loadPdfPages = async (file: File): Promise<string[]> => {
     return new Promise((resolve, reject) => {
       const fileReader = new FileReader();
@@ -27,32 +39,24 @@ const App: React.FC = () => {
         try {
           const typedarray = new Uint8Array(this.result as ArrayBuffer);
           const pdfjsLib = (window as any).pdfjsLib;
-          if (!pdfjsLib) {
-            throw new Error("مكتبة معالجة ملفات PDF لم تكتمل بعد، يرجى الانتظار ثانية والمحاولة.");
-          }
+          if (!pdfjsLib) throw new Error("مكتبة معالجة ملفات PDF لم تكتمل بعد، يرجى الانتظار ثانية والمحاولة.");
           const pdf = await pdfjsLib.getDocument({ data: typedarray }).promise;
           const pageImages: string[] = [];
           
           for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
             const page = await pdf.getPage(pageNum);
-            const viewport = page.getViewport({ scale: 2.0 }); // High-quality 2x scaling
+            const viewport = page.getViewport({ scale: 2.0 });
             const canvas = document.createElement('canvas');
             const context = canvas.getContext('2d');
             if (context) {
               canvas.height = viewport.height;
               canvas.width = viewport.width;
-              await page.render({
-                canvasContext: context,
-                viewport: viewport
-              }).promise;
+              await page.render({ canvasContext: context, viewport: viewport }).promise;
               pageImages.push(canvas.toDataURL('image/jpeg', 0.85));
             }
           }
           resolve(pageImages);
-        } catch (err: any) {
-          console.error(err);
-          reject(err);
-        }
+        } catch (err: any) { reject(err); }
       };
       fileReader.onerror = (err) => reject(err);
       fileReader.readAsArrayBuffer(file);
@@ -70,84 +74,43 @@ const App: React.FC = () => {
       setLoadingPdf(true);
       try {
         const pages = await loadPdfPages(firstFile);
-        setDocs(prev => ({ 
-          ...prev, 
-          original: pages[0] || null, 
-          originalPages: pages 
-        }));
+        setDocs(prev => ({ ...prev, original: pages[0] || null, originalPages: pages }));
       } catch (err: any) {
-        alert("حدث خطأ أثناء قراءة ملف PDF: " + (err.message || err));
+        alert("خطأ PDF: " + (err.message || err));
       } finally {
         setLoadingPdf(false);
       }
     } else {
-      // It's a list of images!
-      const pagePromises = fileList.map(file => {
-        return new Promise<string>((resolve) => {
-          const reader = new FileReader();
-          reader.onload = (e) => {
-            resolve(e.target?.result as string || "");
-          };
-          reader.readAsDataURL(file);
-        });
-      });
-
-      try {
-        const pages = await Promise.all(pagePromises);
-        setDocs(prev => ({ 
-          ...prev, 
-          original: pages[0] || null, 
-          originalPages: [...prev.originalPages, ...pages.filter(p => !!p)] 
-        }));
-      } catch (err) {
-        console.error(err);
-      }
+      const pagePromises = fileList.map(file => new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (e) => resolve(e.target?.result as string || "");
+        reader.readAsDataURL(file);
+      }));
+      const pages = await Promise.all(pagePromises);
+      setDocs(prev => ({ ...prev, original: pages[0] || null, originalPages: [...prev.originalPages, ...pages.filter(p => !!p)] }));
     }
   };
 
   const handleTemplateUpload = async (files: File | File[]) => {
     const fileList = Array.isArray(files) ? files : [files];
     if (fileList.length === 0) return;
-
     const firstFile = fileList[0];
     const isPdf = firstFile.type === 'application/pdf' || firstFile.name.toLowerCase().endsWith('.pdf');
-
     if (isPdf) {
       setLoadingPdf(true);
       try {
         const pages = await loadPdfPages(firstFile);
-        setDocs(prev => ({ 
-          ...prev, 
-          template: pages[0] || null, 
-          templatePages: pages 
-        }));
-      } catch (err: any) {
-        alert("حدث خطأ أثناء قراءة ورقة المؤسسة PDF: " + (err.message || err));
-      } finally {
-        setLoadingPdf(false);
-      }
+        setDocs(prev => ({ ...prev, template: pages[0] || null, templatePages: pages }));
+      } catch (err: any) { alert("خطأ PDF: " + (err.message || err)); } 
+      finally { setLoadingPdf(false); }
     } else {
-      // It's a list of images!
-      const pagePromises = fileList.map(file => {
-        return new Promise<string>((resolve) => {
-          const reader = new FileReader();
-          reader.onload = (e) => {
-            resolve(e.target?.result as string || "");
-          };
-          reader.readAsDataURL(file);
-        });
-      });
-
-      try {
-        const pages = await Promise.all(pagePromises);
-        setDocs(prev => ({ 
-          ...prev, 
-          template: pages[0] || null, 
-          templatePages: pages.filter(p => !!p) 
-        }));
-      } catch (err) {
-        console.error(err);
-      }
+      const pagePromises = fileList.map(file => new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (e) => resolve(e.target?.result as string || "");
+        reader.readAsDataURL(file);
+      }));
+      const pages = await Promise.all(pagePromises);
+      setDocs(prev => ({ ...prev, template: pages[0] || null, templatePages: pages.filter(p => !!p) }));
     }
   };
 
@@ -157,90 +120,164 @@ const App: React.FC = () => {
       setLoadingPdf(true);
       try {
         const pages = await loadPdfPages(file);
-        if (pages.length > 0) {
-          setDocs(prev => ({ ...prev, [type]: pages[0] }));
-        } else {
-          alert("لم يتم العثور على أي صفحة في ملف PDF.");
-        }
-      } catch (err: any) {
-        alert("حدث خطأ أثناء قراءة ملف PDF: " + (err.message || err));
-      } finally {
-        setLoadingPdf(false);
-      }
+        if (pages.length > 0) setDocs(prev => ({ ...prev, [type]: pages[0] }));
+      } catch (err: any) { alert("خطأ PDF: " + (err.message || err)); } 
+      finally { setLoadingPdf(false); }
     } else {
       const reader = new FileReader();
-      reader.onload = (e) => {
-        if (e.target?.result) {
-          setDocs(prev => ({ ...prev, [type]: e.target!.result as string }));
-        }
-      };
+      reader.onload = (e) => { if (e.target?.result) setDocs(prev => ({ ...prev, [type]: e.target!.result as string })); };
       reader.readAsDataURL(file);
     }
   };
 
   const clearFile = (type: keyof DocumentState) => {
-    if (type === 'original') {
-      setDocs(prev => ({ ...prev, original: null, originalPages: [] }));
-    } else if (type === 'template') {
-      setDocs(prev => ({ ...prev, template: null, templatePages: [] }));
+    if (type === 'original') setDocs(prev => ({ ...prev, original: null, originalPages: [] }));
+    else if (type === 'template') setDocs(prev => ({ ...prev, template: null, templatePages: [] }));
+    else setDocs(prev => ({ ...prev, [type]: null }));
+  };
+
+  const handleProceedToEditor = () => {
+    const check = canUserProcessFile(currentUser);
+    if (!check.allowed) {
+      setLimitWarning(check.reason || 'لا يمكنك المتابعة');
+      setTimeout(() => setLimitWarning(null), 4000);
+      return;
+    }
+    setStep(Step.EDITOR);
+  };
+
+  const loadSavedAsset = (type: 'stamp' | 'signature' | 'template') => {
+    if (currentUser?.plan !== 'pro' && currentUser?.role !== 'admin') {
+      alert('ميزة السحابة متاحة فقط في باقة Pro. رقي باقتك بـ 10 ريال فقط!');
+      return;
+    }
+    if (currentUser.savedAssets[type]) {
+      if (type === 'template') {
+        setDocs(prev => ({ ...prev, template: currentUser.savedAssets[type], templatePages: [currentUser.savedAssets[type] as string] }));
+      } else {
+        setDocs(prev => ({ ...prev, [type]: currentUser.savedAssets[type] }));
+      }
     } else {
-      setDocs(prev => ({ ...prev, [type]: null }));
+      alert('لا يوجد ملف محفوظ.');
     }
   };
 
-  // Only the original document pages are absolutely required! Template pages, stamps, and signatures are completely optional.
+  if (step === Step.LANDING) {
+    return <LandingView onStart={() => setStep(Step.AUTH)} />;
+  }
+
+  if (step === Step.AUTH) {
+    return (
+      <AuthFlow 
+        onSuccess={(u) => { setUser(u); setStep(Step.UPLOAD); }}
+        onCancel={() => setStep(Step.LANDING)}
+      />
+    );
+  }
+
   const canProceed = docs.originalPages.length > 0;
+  
+  // Apply themes
+  let bgClass = 'bg-slate-50 text-slate-900';
+  let cardClass = 'bg-white border-slate-200';
+  let isLight = true;
+
+  if (currentUser?.theme === 'space-dark') {
+    bgClass = 'bg-slate-950 text-slate-200';
+    cardClass = 'bg-slate-900 border-slate-800';
+    isLight = false;
+  } else if (currentUser?.theme === 'snap-yellow') {
+    bgClass = 'bg-[#FFFC00] text-slate-900';
+    cardClass = 'bg-white border-[#e6e300]';
+    isLight = true;
+  }
+
+  const isPending = currentUser?.subscriptionStatus !== 'active' && currentUser?.role !== 'admin';
 
   return (
-    <div className="min-h-screen pb-20 bg-slate-50">
-      {/* Loading Overlay */}
+    <div className={`min-h-screen flex flex-col font-sans transition-colors duration-500 ${bgClass}`} dir="rtl">
+      
       {loadingPdf && (
-        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-slate-900/60 backdrop-blur-sm animate-fade-in">
-          <div className="bg-white p-8 rounded-2xl shadow-2xl flex flex-col items-center gap-4 max-w-sm w-full text-center border border-slate-100">
-            <Loader2 className="w-12 h-12 animate-spin text-teal-600" />
-            <h4 className="text-slate-800 font-bold text-lg mt-2">جاري استخراج صفحات PDF...</h4>
-            <p className="text-sm text-slate-500 leading-relaxed">يرجى الانتظار، جاري تحويل مستند PDF إلى صفحات ذكية قابلة للتعديل والدمج.</p>
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-slate-950/80 backdrop-blur-sm">
+          <div className="bg-slate-900 p-8 rounded-3xl shadow-2xl flex flex-col items-center gap-4 max-w-sm w-full border border-slate-800">
+            <Loader2 className="w-12 h-12 animate-spin text-teal-500" />
+            <h4 className="text-white font-bold text-lg mt-2">جاري المعالجة...</h4>
           </div>
         </div>
       )}
 
-      {/* Header */}
-      <header className="bg-white border-b border-slate-200 relative z-40 shadow-xs">
-        <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="bg-teal-600 p-2.5 rounded-xl text-white shadow-sm shadow-teal-200">
-              <FileText size={22} className="stroke-[2.5]" />
-            </div>
-            <h1 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-1.5">
-              وثيق
-              <span className="text-[10px] bg-teal-50 text-teal-700 font-bold px-2 py-0.5 rounded-md border border-teal-100">
-                للتوثيق والدمج
-              </span>
-            </h1>
-          </div>
+      {limitWarning && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-red-500 text-white px-6 py-3 rounded-xl shadow-2xl font-bold animate-fade-in-up">
+          {limitWarning}
         </div>
-      </header>
+      )}
 
-      <main className="max-w-6xl mx-auto px-4 py-8 flex-1 animate-fade-in-up">
+      {/* Floating Logo Top Right */}
+      {step !== Step.EDITOR && (
+        <div className="fixed top-6 right-6 z-40 pointer-events-auto flex items-center gap-3">
+          <FileText size={32} className={`${currentUser?.theme === 'snap-yellow' ? 'text-slate-900' : 'text-teal-500'} drop-shadow-md stroke-[2.5]`} />
+          {currentUser?.role === 'admin' && (
+            <div className="relative">
+              <button 
+                onClick={() => setAdminMenuOpen(!adminMenuOpen)}
+                className={`p-2 rounded-xl transition-colors ${isLight ? 'bg-white shadow-sm hover:bg-slate-100' : 'bg-slate-800 hover:bg-slate-700'}`}
+              >
+                <MoreVertical size={20} />
+              </button>
+              {adminMenuOpen && (
+                <div className={`absolute top-full right-0 mt-2 w-48 rounded-2xl shadow-xl border overflow-hidden animate-scale-in ${isLight ? 'bg-white border-slate-200' : 'bg-slate-800 border-slate-700'}`}>
+                  <button onClick={() => { setStep(Step.ADMIN_REQUESTS); setAdminMenuOpen(false); }} className={`flex items-center gap-2 w-full p-3 font-bold text-sm ${isLight ? 'hover:bg-slate-50' : 'hover:bg-slate-700'}`}>
+                    <ListOrdered size={16} className="text-teal-500" /> الطلبات
+                  </button>
+                  <button onClick={() => { setStep(Step.ADMIN_REVENUE); setAdminMenuOpen(false); }} className={`flex items-center gap-2 w-full p-3 font-bold text-sm ${isLight ? 'hover:bg-slate-50' : 'hover:bg-slate-700'}`}>
+                    <DollarSign size={16} className="text-teal-500" /> الأرباح
+                  </button>
+                  <button onClick={() => { setStep(Step.ADMIN_CODES); setAdminMenuOpen(false); }} className={`flex items-center gap-2 w-full p-3 font-bold text-sm ${isLight ? 'hover:bg-slate-50' : 'hover:bg-slate-700'}`}>
+                    <Key size={16} className="text-teal-500" /> الأكواد
+                  </button>
+                  <button onClick={() => { setStep(Step.ADMIN_USERS); setAdminMenuOpen(false); }} className={`flex items-center gap-2 w-full p-3 font-bold text-sm ${isLight ? 'hover:bg-slate-50' : 'hover:bg-slate-700'}`}>
+                    <Users size={16} className="text-teal-500" /> العملاء
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      <main className="max-w-6xl mx-auto px-4 pt-20 pb-32 flex-1 w-full animate-fade-in-up">
         
         {step === Step.UPLOAD && (
-          <div className="animate-fade-in-up">
+          <div className="flex flex-col">
             <div className="text-center mb-10">
-              <h2 className="text-3xl font-black text-slate-800 tracking-tight mb-2">تجهيز المستند الرسمي</h2>
+              <h2 className={`text-3xl font-black tracking-tight mb-2 ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                مرحباً {currentUser?.name}
+              </h2>
+              <p className={isLight ? 'text-slate-500' : 'text-slate-400'}>
+                قم برفع المستندات المطلوبة للبدء في الدمج والتوثيق
+              </p>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10">
-              {/* القسم الأول: المستندات المطلوبة */}
-              <div className="bg-white p-6 rounded-2xl border border-slate-200/60 shadow-sm hover:shadow-md transition-all duration-300 flex flex-col gap-6">
-                <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
-                  <div className="w-2.5 h-6 bg-teal-600 rounded-full animate-pulse" />
-                  <h3 className="font-extrabold text-slate-800 text-base">المستندات المطلوب دمجها (أساسي)</h3>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8 relative">
+              {isPending && (
+                <div className="absolute inset-0 z-10 flex items-center justify-center backdrop-blur-[2px] bg-white/30 dark:bg-slate-950/30 rounded-3xl">
+                   <div className="bg-white dark:bg-slate-800 shadow-2xl px-6 py-4 rounded-2xl border border-slate-200 dark:border-slate-700 flex flex-col items-center gap-2 animate-scale-in">
+                     <Loader2 className="w-8 h-8 animate-spin text-teal-500" />
+                     <span className="font-bold text-slate-800 dark:text-slate-200">بانتظار كود التفعيل</span>
+                   </div>
                 </div>
+              )}
+              
+              <div className={`${cardClass} p-6 rounded-3xl border shadow-xl flex flex-col gap-6`}>
+                <h3 className={`font-extrabold text-lg flex items-center gap-2 ${isLight ? 'text-slate-800' : 'text-white'}`}>
+                  <div className="w-2 h-6 bg-teal-500 rounded-full" />
+                  المستندات الأساسية
+                </h3>
                 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                <div className="flex flex-col gap-5">
                   <FileUpload
-                    label="1. المستند الأصلي (الأوراق)"
-                    subLabel="ملف PDF أو صور (أصل المعاملة)"
+                    label="المستند الأصلي (الأوراق)"
+                    subLabel="PDF أو صور"
                     accept="image/*,application/pdf"
                     multiple={true}
                     value={docs.originalPages.length > 0 ? docs.originalPages : null}
@@ -248,148 +285,118 @@ const App: React.FC = () => {
                     onClear={() => clearFile('original')}
                     icon={<FileText size={38} className="text-teal-500" />}
                   />
-
-                  <FileUpload
-                    label="2. ورقة المؤسسة الرسمية (اختياري)"
-                    subLabel="ملف PDF أو صور (الخلفية والترويسة) - غير إلزامية"
-                    accept="image/*,application/pdf"
-                    multiple={true}
-                    value={docs.templatePages.length > 0 ? docs.templatePages : null}
-                    onChange={handleTemplateUpload}
-                    onClear={() => clearFile('template')}
-                    icon={<ImageIcon size={38} className="text-teal-500" />}
-                  />
+                  <div>
+                    <FileUpload
+                      label="ورقة المؤسسة الرسمية (الترويسة)"
+                      subLabel="اختياري"
+                      accept="image/*,application/pdf"
+                      multiple={true}
+                      value={docs.templatePages.length > 0 ? docs.templatePages : null}
+                      onChange={handleTemplateUpload}
+                      onClear={() => clearFile('template')}
+                      icon={<ImageIcon size={38} className="text-teal-500" />}
+                    />
+                    <button onClick={() => loadSavedAsset('template')} className="mt-2 text-xs text-teal-500 font-bold hover:underline">
+                      {currentUser?.plan === 'pro' || currentUser?.role === 'admin' ? 'استخدام الترويسة المحفوظة في حسابي' : 'استخدم الترويسة من السحابة 👑'}
+                    </button>
+                  </div>
                 </div>
               </div>
 
-              {/* القسم الثاني: التوثيق الاختياري */}
-              <div className="bg-white p-6 rounded-2xl border border-slate-200/60 shadow-sm hover:shadow-md transition-all duration-300 flex flex-col gap-6">
-                <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
-                  <div className="w-2.5 h-6 bg-emerald-600 rounded-full animate-pulse" />
-                  <h3 className="font-extrabold text-slate-800 text-base">أدوات التوثيق والاعتماد (اختياري)</h3>
-                </div>
+              <div className={`${cardClass} p-6 rounded-3xl border shadow-xl flex flex-col gap-6`}>
+                <h3 className={`font-extrabold text-lg flex items-center gap-2 ${isLight ? 'text-slate-800' : 'text-white'}`}>
+                  <div className="w-2 h-6 bg-teal-500 rounded-full" />
+                  الأختام والتواقيع (اختياري)
+                </h3>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                  <FileUpload
-                    label="3. ختم المؤسسة"
-                    subLabel="صورة الختم أو ملف PDF (يفضل خلفية شفافة PNG)"
-                    accept="image/png, image/jpeg, application/pdf"
-                    value={docs.stamp}
-                    onChange={(f) => handleFile('stamp', f as File)}
-                    onClear={() => clearFile('stamp')}
-                    icon={<Stamp size={38} className="text-amber-500" />}
-                  />
-
-                  <div className="flex flex-col gap-3">
+                <div className="flex flex-col gap-5">
+                  <div>
                     <FileUpload
-                      label="4. التوقيع الإلكتروني"
-                      subLabel="صورة توقيعك، ملف PDF أو ارسم بيدك"
+                      label="ختم المؤسسة"
+                      subLabel="صورة شفافة PNG"
+                      accept="image/png, image/jpeg, application/pdf"
+                      value={docs.stamp}
+                      onChange={(f) => handleFile('stamp', f as File)}
+                      onClear={() => clearFile('stamp')}
+                      icon={<Stamp size={38} className="text-teal-500" />}
+                    />
+                    <button onClick={() => loadSavedAsset('stamp')} className="mt-2 text-xs text-teal-500 font-bold hover:underline">
+                      {currentUser?.plan === 'pro' || currentUser?.role === 'admin' ? 'استخدام الختم المحفوظ في حسابي' : 'استخدم الختم من السحابة 👑'}
+                    </button>
+                  </div>
+
+                  <div>
+                    <FileUpload
+                      label="التوقيع"
+                      subLabel="صورة أو رسم حي"
                       accept="image/png, image/jpeg, application/pdf"
                       value={docs.signature}
                       onChange={(f) => handleFile('signature', f as File)}
                       onClear={() => clearFile('signature')}
-                      icon={<PenTool size={38} className="text-emerald-500" />}
+                      icon={<PenTool size={38} className="text-teal-500" />}
                     />
-                    <button
-                      type="button"
-                      onClick={() => setIsDrawingSignature(true)}
-                      className="flex items-center justify-center gap-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 py-2.5 px-3 rounded-xl font-bold text-xs border border-emerald-200/40 shadow-xs transition-all hover:scale-[1.02] cursor-pointer active:scale-[0.98]"
-                    >
-                      <PenTool size={13} />
-                      أو ارسم توقيعك الحي الآن ✍️
-                    </button>
+                    <div className="flex justify-between items-center mt-2">
+                       <button onClick={() => loadSavedAsset('signature')} className="text-xs text-teal-500 font-bold hover:underline">
+                        {currentUser?.plan === 'pro' || currentUser?.role === 'admin' ? 'استخدام التوقيع المحفوظ' : 'التوقيع من السحابة 👑'}
+                      </button>
+                      <button onClick={() => setIsDrawingSignature(true)} className={`text-xs px-4 py-2 rounded-xl font-bold transition-colors ${isLight ? 'bg-slate-100 text-slate-700 hover:bg-slate-200' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}>ارسم توقيعك ✍️</button>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
 
-            <div className="flex flex-col items-center gap-4">
+            <div className="flex justify-center mt-4">
               <button
-                disabled={!canProceed}
-                onClick={() => setStep(Step.EDITOR)}
-                className={`
-                  flex items-center justify-center gap-3 px-12 py-4 rounded-xl font-bold text-lg transition-all shadow-xl
-                  ${canProceed 
-                    ? 'bg-teal-600 text-white hover:bg-teal-700 hover:scale-[1.03] active:scale-[0.98] shadow-teal-100 cursor-pointer' 
-                    : 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'
-                  }
-                `}
+                disabled={!canProceed || isPending}
+                onClick={handleProceedToEditor}
+                className={`flex items-center justify-center gap-3 px-12 py-4 rounded-3xl font-black text-lg transition-all shadow-xl ${
+                  canProceed && !isPending ? 'bg-gradient-to-r from-teal-400 to-teal-600 text-white hover:scale-[1.02] cursor-pointer' : 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed opacity-50'
+                }`}
               >
-                المتابعة إلى المحرر
+                المتابعة للدمج
                 <ArrowLeft size={20} />
               </button>
-              
-              {!canProceed && (
-                <p className="text-sm font-medium text-amber-600 bg-amber-50 px-4 py-2 rounded-lg border border-amber-100 flex items-center gap-2 animate-pulse">
-                  <HelpCircle size={16} />
-                  يرجى رفع المستند الأصلي للمتابعة (الخلفية الرسمية، الختم، والتوقيع اختيارية تماماً)
-                </p>
-              )}
             </div>
-
-            <DocCreator 
-              onSendToEditor={(pages) => {
-                setDocs(prev => ({
-                  ...prev,
-                  original: pages[0] || null,
-                  originalPages: pages
-                }));
-                // We stay in Step.UPLOAD so the user can upload or select stamp/signature as requested
-              }}
-            />
           </div>
         )}
 
         {step === Step.EDITOR && (
-          <div className="animate-scale-in">
-            <CanvasEditor 
-              documents={docs} 
-              onReset={() => {
-                setDocs({ original: null, originalPages: [], template: null, templatePages: [], stamp: null, signature: null });
-                setStep(Step.UPLOAD);
-              }}
-            />
-          </div>
+          <CanvasEditor 
+            documents={docs} 
+            onReset={() => {
+              setDocs({ original: null, originalPages: [], template: null, templatePages: [], stamp: null, signature: null });
+              setStep(Step.UPLOAD);
+            }}
+          />
         )}
+
+        {step === Step.ACCOUNT && currentUser && (
+          <AccountView currentUser={currentUser} onLogout={() => { setUser(null); setStep(Step.LANDING); }} onUpdate={() => setDocs({ ...docs })} />
+        )}
+
+        {step === Step.ADMIN_REQUESTS && currentUser && <AdminRequestsView currentUser={currentUser} />}
+        {step === Step.ADMIN_REVENUE && currentUser && <AdminRevenueView currentUser={currentUser} />}
+        {step === Step.ADMIN_CODES && currentUser && <AdminCodesView currentUser={currentUser} />}
+        {step === Step.ADMIN_USERS && currentUser && <AdminUsersView currentUser={currentUser} />}
 
       </main>
 
       {isDrawingSignature && (
         <SignaturePad
-          onSave={(dataUrl) => {
-            setDocs(prev => ({ ...prev, signature: dataUrl }));
-            setIsDrawingSignature(false);
-          }}
+          onSave={(dataUrl) => { setDocs(prev => ({ ...prev, signature: dataUrl })); setIsDrawingSignature(false); }}
           onClose={() => setIsDrawingSignature(false)}
         />
       )}
 
-      {/* Floating Support Card with Soft Rounded Corners */}
-      <footer className="w-full py-8 text-slate-500 text-sm animate-fade-in-up">
-        <div className="max-w-6xl mx-auto px-4 flex justify-center">
-          <div className="flex flex-col items-center gap-3 text-center text-slate-700 bg-white border border-slate-200/60 px-6 py-5 rounded-2xl shadow-sm hover:shadow-md transition-all duration-300 max-w-md w-full">
-            <div className="flex items-center justify-center gap-2.5">
-              <span className="relative flex h-2.5 w-2.5 opacity-90">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-teal-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-teal-500"></span>
-              </span>
-              <span className="text-xs text-slate-500 font-bold">رقم المبرمج للتواصل والدعم المباشر:</span>
-              <a href="tel:0536894854" className="font-extrabold text-teal-600 hover:text-teal-700 hover:underline tracking-wider text-sm transition-colors">0536894854</a>
-            </div>
-
-            <div className="w-full h-px bg-slate-100" />
-
-            <div className="text-center">
-              <p className="text-xs text-slate-400 font-semibold mb-1">
-                جميع حقوق فكرة وتصميم الموقع محفوظة &copy; {new Date().getFullYear()}
-              </p>
-              <p className="text-[11px] text-amber-600 font-bold">
-                تنويه: اشتراك التطبيق على الذمة، وللدفع كل شهر يرجى التواصل مع المبرمج.
-              </p>
-            </div>
-          </div>
-        </div>
-      </footer>
+      {step !== Step.EDITOR && (
+        <BottomNav
+          currentUser={currentUser}
+          currentStep={step}
+          onOpenHome={() => { setStep(Step.UPLOAD); refreshUser(); }}
+          onOpenAccount={() => setStep(Step.ACCOUNT)}
+        />
+      )}
     </div>
   );
 };

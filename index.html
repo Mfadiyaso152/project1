@@ -72,6 +72,21 @@
       .animate-scale-in {
         animation: scaleIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
       }
+
+      .pb-safe {
+        padding-bottom: env(safe-area-inset-bottom, 20px);
+      }
+      .pt-safe {
+        padding-top: env(safe-area-inset-top, 20px);
+      }
+    
+      html { scroll-behavior: smooth; }
+      /* Smooth transitions for all interactive elements */
+      button, input, a, div, span, nav, header, main {
+        transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow, transform, filter, backdrop-filter;
+        transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+        transition-duration: 300ms;
+      }
     </style>
   <script type="importmap">
 {
