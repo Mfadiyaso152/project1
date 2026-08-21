@@ -239,13 +239,7 @@ export const AdminUsersView = ({ currentUser }: { currentUser: User }) => {
                 <p className={`text-xs font-mono ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{user.email}</p>
                 <p className={`text-xs font-mono ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{user.phone}</p>
               </div>
-              <span className={`px-3 py-1 rounded-full text-xs font-bold border ${
-                user.subscriptionStatus === 'active' 
-                  ? (isLight ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30')
-                  : (isLight ? 'bg-slate-50 text-slate-700 border-slate-200' : 'bg-slate-500/20 text-slate-400 border-slate-500/30')
-              }`}>
-                {user.subscriptionStatus === 'active' ? 'مفعل' : 'غير مفعل'}
-              </span>
+              
             </div>
             <div className={`p-3 rounded-xl text-sm flex flex-col gap-1 ${isLight ? 'bg-slate-50 text-slate-700' : 'bg-slate-950 text-slate-300'}`}>
               <div>الباقة: <span className="font-bold">{(user.plan || 'بدون').toUpperCase()}</span></div>
