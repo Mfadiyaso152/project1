@@ -56,7 +56,7 @@ export const DocumentationModal: React.FC<DocumentationModalProps> = ({ isOpen, 
               <div className="p-3.5 bg-slate-50 border border-slate-200/60 rounded-2xl flex flex-col gap-1.5">
                 <span className="font-bold text-teal-800 text-xs">2. ورقة المؤسسة الرسمية (اختياري)</span>
                 <p className="text-[12px] text-slate-500">
-                  خلفية وترويسة المؤسسة. سيتم دمج المستند الأصلي فوقها بذكاء وشفافية متناسقة.
+                  خلفية وورقة المؤسسة الرسمية المؤسسة. سيتم دمج المستند الأصلي فوقها بذكاء وشفافية متناسقة.
                 </p>
               </div>
 
@@ -96,7 +96,7 @@ export const DocumentationModal: React.FC<DocumentationModalProps> = ({ isOpen, 
             <div>
               <h5 className="font-bold text-slate-900 text-xs">الخصوصية وأمان البيانات</h5>
               <p className="text-[11px] text-slate-500 mt-1">
-                تتم معالجة ودمج ملفات PDF والترويسات محلياً ومباشرة في متصفحك لضمان سرية مستندات المؤسسة وأعلى معايير الأمان.
+                تتم معالجة ودمج ملفات PDF والأوراق الرسمية محلياً ومباشرة في متصفحك لضمان سرية مستندات المؤسسة وأعلى معايير الأمان.
               </p>
             </div>
           </div>

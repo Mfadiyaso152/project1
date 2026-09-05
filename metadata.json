@@ -2,5 +2,7 @@
   "name": "وثيق - منصة دمج وتوثيق المستندات والختم الإلكتروني",
   "description": "منصة وثيق لدمج أصل المعاملات مع أوراق المؤسسة الرسمية وإضافة الأختام والتواقيع وتصديرها كملف PDF موثّق.",
   "requestFramePermissions": [],
-  "majorCapabilities": []
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

@@ -1,15 +1,27 @@
 import React, { useState, useEffect } from 'react';
-import { FileText, Stamp, Image as ImageIcon, Loader2, ArrowLeft, PenTool, Sparkles, MoreVertical, ListOrdered, DollarSign, Key, Users } from 'lucide-react';
+import { 
+  FileText, 
+  Stamp, 
+  Image as ImageIcon, 
+  Loader2, 
+  ArrowLeft, 
+  PenTool, 
+  Sparkles, 
+  Users, 
+  Layers,
+  CheckCircle2,
+  Shield
+} from 'lucide-react';
 import FileUpload from './components/FileUpload';
 import CanvasEditor from './components/CanvasEditor';
 import SignaturePad from './components/SignaturePad';
 import { LandingView } from './components/LandingView';
 import { AuthFlow } from './components/AuthFlow';
 import { AccountView } from './components/AccountView';
-import { AdminRequestsView, AdminRevenueView, AdminCodesView, AdminUsersView } from './components/AdminViews';
+import { AdminUsersView } from './components/AdminViews';
 import { BottomNav } from './components/BottomNav';
 import { DocumentState, Step, User } from './types';
-import { getCurrentUser, setCurrentUser, canUserProcessFile, updateUserInDb, createSubscriptionRequest } from './authService';
+import { getCurrentUser, setCurrentUser, canUserProcessFile, updateUserInDb, ADMIN_EMAIL } from './authService';
 
 const App: React.FC = () => {
   const [currentUser, setUser] = useState<User | null>(() => getCurrentUser());
@@ -18,8 +30,6 @@ const App: React.FC = () => {
   const [loadingPdf, setLoadingPdf] = useState(false);
   const [isDrawingSignature, setIsDrawingSignature] = useState(false);
   const [limitWarning, setLimitWarning] = useState<string | null>(null);
-
-  const [adminMenuOpen, setAdminMenuOpen] = useState(false);
 
   const [docs, setDocs] = useState<DocumentState>({
     original: null, originalPages: [],
@@ -30,6 +40,8 @@ const App: React.FC = () => {
   const refreshUser = () => {
     setUser(getCurrentUser());
   };
+
+  const isAdmin = currentUser?.role === 'admin' || currentUser?.email.toLowerCase() === ADMIN_EMAIL.toLowerCase();
 
   // PDF Loading Logic
   const loadPdfPages = async (file: File): Promise<string[]> => {
@@ -139,7 +151,7 @@ const App: React.FC = () => {
   const handleProceedToEditor = () => {
     const check = canUserProcessFile(currentUser);
     if (!check.allowed) {
-      setLimitWarning(check.reason || 'لا يمكنك المتابعة');
+      setLimitWarning(check.reason || 'يرجى تسجيل الدخول أولاً');
       setTimeout(() => setLimitWarning(null), 4000);
       return;
     }
@@ -147,18 +159,22 @@ const App: React.FC = () => {
   };
 
   const loadSavedAsset = (type: 'stamp' | 'signature' | 'template') => {
-    if (currentUser?.plan !== 'pro' && currentUser?.role !== 'admin') {
-      alert('ميزة السحابة متاحة فقط في باقة Pro. رقي باقتك بـ 10 ريال فقط!');
+    if (!currentUser) {
+      alert('يرجى تسجيل الدخول أولاً.');
       return;
     }
-    if (currentUser.savedAssets[type]) {
+    if (currentUser.savedAssets && currentUser.savedAssets[type]) {
       if (type === 'template') {
-        setDocs(prev => ({ ...prev, template: currentUser.savedAssets[type], templatePages: [currentUser.savedAssets[type] as string] }));
+        setDocs(prev => ({ 
+          ...prev, 
+          template: currentUser.savedAssets[type], 
+          templatePages: [currentUser.savedAssets[type] as string] 
+        }));
       } else {
         setDocs(prev => ({ ...prev, [type]: currentUser.savedAssets[type] }));
       }
     } else {
-      alert('لا يوجد ملف محفوظ.');
+      alert('لا يوجد ملف محفوظ في حسابك. يمكنك حفظ أصولك من صفحة "حسابي".');
     }
   };
 
@@ -169,15 +185,18 @@ const App: React.FC = () => {
   if (step === Step.AUTH) {
     return (
       <AuthFlow 
-        onSuccess={(u) => { setUser(u); setStep(Step.UPLOAD); }}
-        onCancel={() => setStep(Step.LANDING)}
+        onSuccess={(u) => { 
+          setUser(u); 
+          setStep(Step.UPLOAD); 
+        }}
+        onCancel={() => setStep(currentUser ? Step.UPLOAD : Step.LANDING)}
       />
     );
   }
 
   const canProceed = docs.originalPages.length > 0;
   
-  // Apply themes
+  // Theme styling
   let bgClass = 'bg-slate-50 text-slate-900';
   let cardClass = 'bg-white border-slate-200';
   let isLight = true;
@@ -192,8 +211,6 @@ const App: React.FC = () => {
     isLight = true;
   }
 
-  const isPending = currentUser?.subscriptionStatus !== 'active' && currentUser?.role !== 'admin';
-
   return (
     <div className={`min-h-screen flex flex-col font-sans transition-colors duration-500 ${bgClass}`} dir="rtl">
       
@@ -201,73 +218,46 @@ const App: React.FC = () => {
         <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-slate-950/80 backdrop-blur-sm">
           <div className="bg-slate-900 p-8 rounded-3xl shadow-2xl flex flex-col items-center gap-4 max-w-sm w-full border border-slate-800">
             <Loader2 className="w-12 h-12 animate-spin text-teal-500" />
-            <h4 className="text-white font-bold text-lg mt-2">جاري المعالجة...</h4>
+            <h4 className="text-white font-bold text-lg mt-2">جاري معالجة صفحات المستند...</h4>
           </div>
         </div>
       )}
 
       {limitWarning && (
-        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-red-500 text-white px-6 py-3 rounded-xl shadow-2xl font-bold animate-fade-in-up">
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-red-500 text-white px-6 py-3 rounded-2xl shadow-2xl font-bold animate-fade-in-up">
           {limitWarning}
         </div>
       )}
 
       {/* Floating Logo Top Right */}
       {step !== Step.EDITOR && (
-        <div className="fixed top-6 right-6 z-40 pointer-events-auto flex items-center gap-3">
-          <FileText size={32} className={`${currentUser?.theme === 'snap-yellow' ? 'text-slate-900' : 'text-teal-500'} drop-shadow-md stroke-[2.5]`} />
-          {currentUser?.role === 'admin' && (
-            <div className="relative">
-              <button 
-                onClick={() => setAdminMenuOpen(!adminMenuOpen)}
-                className={`p-2 rounded-xl transition-colors ${isLight ? 'bg-white shadow-sm hover:bg-slate-100' : 'bg-slate-800 hover:bg-slate-700'}`}
-              >
-                <MoreVertical size={20} />
-              </button>
-              {adminMenuOpen && (
-                <div className={`absolute top-full right-0 mt-2 w-48 rounded-2xl shadow-xl border overflow-hidden animate-scale-in ${isLight ? 'bg-white border-slate-200' : 'bg-slate-800 border-slate-700'}`}>
-                  <button onClick={() => { setStep(Step.ADMIN_REQUESTS); setAdminMenuOpen(false); }} className={`flex items-center gap-2 w-full p-3 font-bold text-sm ${isLight ? 'hover:bg-slate-50' : 'hover:bg-slate-700'}`}>
-                    <ListOrdered size={16} className="text-teal-500" /> الطلبات
-                  </button>
-                  <button onClick={() => { setStep(Step.ADMIN_REVENUE); setAdminMenuOpen(false); }} className={`flex items-center gap-2 w-full p-3 font-bold text-sm ${isLight ? 'hover:bg-slate-50' : 'hover:bg-slate-700'}`}>
-                    <DollarSign size={16} className="text-teal-500" /> الأرباح
-                  </button>
-                  <button onClick={() => { setStep(Step.ADMIN_CODES); setAdminMenuOpen(false); }} className={`flex items-center gap-2 w-full p-3 font-bold text-sm ${isLight ? 'hover:bg-slate-50' : 'hover:bg-slate-700'}`}>
-                    <Key size={16} className="text-teal-500" /> الأكواد
-                  </button>
-                  <button onClick={() => { setStep(Step.ADMIN_USERS); setAdminMenuOpen(false); }} className={`flex items-center gap-2 w-full p-3 font-bold text-sm ${isLight ? 'hover:bg-slate-50' : 'hover:bg-slate-700'}`}>
-                    <Users size={16} className="text-teal-500" /> العملاء
-                  </button>
-                </div>
-              )}
+        <header className="fixed top-5 right-6 left-6 z-40 flex items-center justify-between pointer-events-none max-w-6xl mx-auto">
+          <div className="pointer-events-auto flex items-center gap-3 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md px-4 py-2 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+            <div className="p-1.5 bg-teal-500 text-white rounded-xl">
+              <FileText size={22} className="stroke-[2.5]" />
             </div>
-          )}
-        </div>
+            <span className={`font-black text-lg ${isLight ? 'text-slate-900' : 'text-white'}`}>وثيق</span>
+            <span className="text-[10px] font-bold text-teal-600 bg-teal-50 px-2 py-0.5 rounded-full hidden sm:inline">توثيق رسمي</span>
+          </div>
+        </header>
       )}
 
-      <main className="max-w-6xl mx-auto px-4 pt-20 pb-32 flex-1 w-full animate-fade-in-up">
+      <main className="max-w-6xl mx-auto px-4 pt-24 pb-32 flex-1 w-full animate-fade-in-up">
         
         {step === Step.UPLOAD && (
           <div className="flex flex-col">
-            <div className="text-center mb-10">
+            <div className="text-center mb-8">
               <h2 className={`text-3xl font-black tracking-tight mb-2 ${isLight ? 'text-slate-900' : 'text-white'}`}>
-                مرحباً {currentUser?.name}
+                مرحباً {currentUser?.name || 'بك في وثيق'}
               </h2>
               <p className={isLight ? 'text-slate-500' : 'text-slate-400'}>
-                قم برفع المستندات المطلوبة للبدء في الدمج والتوثيق
+                قم برفع المستندات المطلوبة للبدء في الدمج والتوثيق الإلكتروني
               </p>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8 relative">
-              {isPending && (
-                <div className="absolute inset-0 z-10 flex items-center justify-center backdrop-blur-[2px] bg-white/30 dark:bg-slate-950/30 rounded-3xl">
-                   <div className="bg-white dark:bg-slate-800 shadow-2xl px-6 py-4 rounded-2xl border border-slate-200 dark:border-slate-700 flex flex-col items-center gap-2 animate-scale-in">
-                     <Loader2 className="w-8 h-8 animate-spin text-teal-500" />
-                     <span className="font-bold text-slate-800 dark:text-slate-200">بانتظار كود التفعيل</span>
-                   </div>
-                </div>
-              )}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
               
+              {/* Core Documents Box */}
               <div className={`${cardClass} p-6 rounded-3xl border shadow-xl flex flex-col gap-6`}>
                 <h3 className={`font-extrabold text-lg flex items-center gap-2 ${isLight ? 'text-slate-800' : 'text-white'}`}>
                   <div className="w-2 h-6 bg-teal-500 rounded-full" />
@@ -277,7 +267,7 @@ const App: React.FC = () => {
                 <div className="flex flex-col gap-5">
                   <FileUpload
                     label="المستند الأصلي (الأوراق)"
-                    subLabel="PDF أو صور"
+                    subLabel="PDF أو صور متعددة"
                     accept="image/*,application/pdf"
                     multiple={true}
                     value={docs.originalPages.length > 0 ? docs.originalPages : null}
@@ -287,8 +277,8 @@ const App: React.FC = () => {
                   />
                   <div>
                     <FileUpload
-                      label="ورقة المؤسسة الرسمية (الترويسة)"
-                      subLabel="اختياري"
+                      label="ورقة المؤسسة الرسمية"
+                      subLabel="اختياري (خلفية للخطابات)"
                       accept="image/*,application/pdf"
                       multiple={true}
                       value={docs.templatePages.length > 0 ? docs.templatePages : null}
@@ -296,13 +286,18 @@ const App: React.FC = () => {
                       onClear={() => clearFile('template')}
                       icon={<ImageIcon size={38} className="text-teal-500" />}
                     />
-                    <button onClick={() => loadSavedAsset('template')} className="mt-2 text-xs text-teal-500 font-bold hover:underline">
-                      {currentUser?.plan === 'pro' || currentUser?.role === 'admin' ? 'استخدام الترويسة المحفوظة في حسابي' : 'استخدم الترويسة من السحابة 👑'}
+                    <button 
+                      onClick={() => loadSavedAsset('template')} 
+                      className="mt-2 text-xs text-teal-600 hover:text-teal-700 font-bold hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      <Layers size={14} />
+                      <span>استخدام الورقة الرسمية المحفوظة في حسابي</span>
                     </button>
                   </div>
                 </div>
               </div>
 
+              {/* Stamps and Signatures Box */}
               <div className={`${cardClass} p-6 rounded-3xl border shadow-xl flex flex-col gap-6`}>
                 <h3 className={`font-extrabold text-lg flex items-center gap-2 ${isLight ? 'text-slate-800' : 'text-white'}`}>
                   <div className="w-2 h-6 bg-teal-500 rounded-full" />
@@ -313,22 +308,26 @@ const App: React.FC = () => {
                   <div>
                     <FileUpload
                       label="ختم المؤسسة"
-                      subLabel="صورة شفافة PNG"
+                      subLabel="صورة شفافة PNG أو JPEG"
                       accept="image/png, image/jpeg, application/pdf"
                       value={docs.stamp}
                       onChange={(f) => handleFile('stamp', f as File)}
                       onClear={() => clearFile('stamp')}
                       icon={<Stamp size={38} className="text-teal-500" />}
                     />
-                    <button onClick={() => loadSavedAsset('stamp')} className="mt-2 text-xs text-teal-500 font-bold hover:underline">
-                      {currentUser?.plan === 'pro' || currentUser?.role === 'admin' ? 'استخدام الختم المحفوظ في حسابي' : 'استخدم الختم من السحابة 👑'}
+                    <button 
+                      onClick={() => loadSavedAsset('stamp')} 
+                      className="mt-2 text-xs text-teal-600 hover:text-teal-700 font-bold hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      <Stamp size={14} />
+                      <span>استخدام الختم المحفوظ في حسابي</span>
                     </button>
                   </div>
 
                   <div>
                     <FileUpload
                       label="التوقيع"
-                      subLabel="صورة أو رسم حي"
+                      subLabel="صورة توقيع أو رسم حي"
                       accept="image/png, image/jpeg, application/pdf"
                       value={docs.signature}
                       onChange={(f) => handleFile('signature', f as File)}
@@ -336,25 +335,38 @@ const App: React.FC = () => {
                       icon={<PenTool size={38} className="text-teal-500" />}
                     />
                     <div className="flex justify-between items-center mt-2">
-                       <button onClick={() => loadSavedAsset('signature')} className="text-xs text-teal-500 font-bold hover:underline">
-                        {currentUser?.plan === 'pro' || currentUser?.role === 'admin' ? 'استخدام التوقيع المحفوظ' : 'التوقيع من السحابة 👑'}
+                      <button 
+                        onClick={() => loadSavedAsset('signature')} 
+                        className="text-xs text-teal-600 hover:text-teal-700 font-bold hover:underline flex items-center gap-1 cursor-pointer"
+                      >
+                        <PenTool size={14} />
+                        <span>استخدام التوقيع المحفوظ</span>
                       </button>
-                      <button onClick={() => setIsDrawingSignature(true)} className={`text-xs px-4 py-2 rounded-xl font-bold transition-colors ${isLight ? 'bg-slate-100 text-slate-700 hover:bg-slate-200' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}>ارسم توقيعك ✍️</button>
+                      <button 
+                        onClick={() => setIsDrawingSignature(true)} 
+                        className={`text-xs px-4 py-2 rounded-xl font-bold transition-colors cursor-pointer flex items-center gap-1 ${
+                          isLight ? 'bg-slate-100 text-slate-700 hover:bg-slate-200' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                        }`}
+                      >
+                        <span>ارسم توقيعك ✍️</span>
+                      </button>
                     </div>
                   </div>
                 </div>
               </div>
             </div>
 
-            <div className="flex justify-center mt-4">
+            <div className="flex justify-center mt-2">
               <button
-                disabled={!canProceed || isPending}
+                disabled={!canProceed}
                 onClick={handleProceedToEditor}
-                className={`flex items-center justify-center gap-3 px-12 py-4 rounded-3xl font-black text-lg transition-all shadow-xl ${
-                  canProceed && !isPending ? 'bg-gradient-to-r from-teal-400 to-teal-600 text-white hover:scale-[1.02] cursor-pointer' : 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed opacity-50'
+                className={`flex items-center justify-center gap-3 px-12 py-4 rounded-2xl font-black text-lg transition-all shadow-xl ${
+                  canProceed 
+                    ? 'bg-gradient-to-r from-teal-400 to-teal-600 text-white hover:scale-[1.02] cursor-pointer shadow-teal-500/20' 
+                    : 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed opacity-50'
                 }`}
               >
-                المتابعة للدمج
+                <span>المتابعة للدمج والتصدير</span>
                 <ArrowLeft size={20} />
               </button>
             </div>
@@ -372,19 +384,35 @@ const App: React.FC = () => {
         )}
 
         {step === Step.ACCOUNT && currentUser && (
-          <AccountView currentUser={currentUser} onLogout={() => { setUser(null); setStep(Step.LANDING); }} onUpdate={() => setDocs({ ...docs })} />
+          <AccountView 
+            currentUser={currentUser} 
+            onLogout={() => { 
+              setCurrentUser(null);
+              setUser(null); 
+              setStep(Step.LANDING); 
+            }} 
+            onUpdate={() => {
+              refreshUser();
+              setDocs({ ...docs });
+            }} 
+          />
         )}
 
-        {step === Step.ADMIN_REQUESTS && currentUser && <AdminRequestsView currentUser={currentUser} />}
-        {step === Step.ADMIN_REVENUE && currentUser && <AdminRevenueView currentUser={currentUser} />}
-        {step === Step.ADMIN_CODES && currentUser && <AdminCodesView currentUser={currentUser} />}
-        {step === Step.ADMIN_USERS && currentUser && <AdminUsersView currentUser={currentUser} />}
+        {step === Step.ADMIN_USERS && currentUser && (
+          <AdminUsersView 
+            currentUser={currentUser} 
+            onBack={() => setStep(Step.UPLOAD)}
+          />
+        )}
 
       </main>
 
       {isDrawingSignature && (
         <SignaturePad
-          onSave={(dataUrl) => { setDocs(prev => ({ ...prev, signature: dataUrl })); setIsDrawingSignature(false); }}
+          onSave={(dataUrl) => { 
+            setDocs(prev => ({ ...prev, signature: dataUrl })); 
+            setIsDrawingSignature(false); 
+          }}
           onClose={() => setIsDrawingSignature(false)}
         />
       )}
@@ -395,6 +423,7 @@ const App: React.FC = () => {
           currentStep={step}
           onOpenHome={() => { setStep(Step.UPLOAD); refreshUser(); }}
           onOpenAccount={() => setStep(Step.ACCOUNT)}
+          onOpenAdminUsers={isAdmin ? () => setStep(Step.ADMIN_USERS) : undefined}
         />
       )}
     </div>
