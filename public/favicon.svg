@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="wathiqGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#14b8a6" />
+      <stop offset="100%" stop-color="#0f766e" />
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#0f766e" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+  <!-- Background Rounded Shield / Badge -->
+  <rect x="6" y="6" width="88" height="88" rx="26" fill="url(#wathiqGrad)" filter="url(#glow)" />
+  
+  <!-- Document Sheet -->
+  <path d="M30 24 H60 L74 38 V74 C74 76.2 72.2 78 70 78 H30 C27.8 78 26 76.2 26 74 V28 C26 25.8 27.8 24 30 24 Z" fill="#ffffff" fill-opacity="0.95" />
+  
+  <!-- Folded Corner -->
+  <path d="M60 24 V38 H74 Z" fill="#ccfbf1" />
+  
+  <!-- Document Lines -->
+  <line x1="34" y1="46" x2="54" y2="46" stroke="#0f766e" stroke-width="3.5" stroke-linecap="round" />
+  <line x1="34" y1="54" x2="50" y2="54" stroke="#14b8a6" stroke-width="3" stroke-linecap="round" />
+  
+  <!-- Official Seal / Stamp Checkmark Emblem -->
+  <circle cx="62" cy="64" r="16" fill="#0d9488" stroke="#ffffff" stroke-width="2.5" />
+  <path d="M56 64.5 L60.5 69 L69 59" fill="none" stroke="#ffffff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" />
+</svg>

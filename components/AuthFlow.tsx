@@ -64,13 +64,18 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({ onSuccess, onCancel }) => {
       }
     } catch (err: any) {
       setIsLoading(false);
-      console.error('Firebase Google Auth Error:', err?.code, err?.message);
+
+      if (err?.code === 'auth/popup-closed-by-user' || err?.code === 'auth/cancelled-popup-request') {
+        // User closed the popup window - reset state cleanly
+        setError('');
+        return;
+      }
+      
+      console.warn('Firebase Google Auth:', err?.code, err?.message);
 
       if (err?.code === 'auth/unauthorized-domain') {
         setUnauthorizedDomain(currentDomain);
         setError('النطاق الحالي قيد الإضافة في قائمة النطاقات المعتمدة بـ Firebase.');
-      } else if (err?.code === 'auth/popup-closed-by-user' || err?.code === 'auth/cancelled-popup-request') {
-        setError('تم إغلاق نافذة الدخول قبل اختيار حساب Google');
       } else if (err?.code === 'auth/popup-blocked') {
         setError('تم حظر النافذة المنبثقة بواسطة المتصفح، يرجى السماح بالنوافذ المنبثقة');
       } else if (err?.code === 'auth/network-request-failed') {
