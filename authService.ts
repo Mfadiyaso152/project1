@@ -1,3 +1,5 @@
+import { collection, doc, setDoc, getDocs, getDoc, updateDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
+import { db } from './firebase';
 import { User, SystemStats } from './types';
 
 export const ADMIN_EMAIL = 'mfb.15.f@gmail.com';
@@ -6,11 +8,19 @@ export const ADMIN_PHONE = '0536894854';
 const STORAGE_KEY_USER = 'watheeq_current_user';
 const STORAGE_KEY_USERS = 'watheeq_all_users';
 
+// Helper to sanitize doc ID for Firestore
+const getDocId = (email: string) => {
+  return email.trim().toLowerCase().replace(/[^a-zA-Z0-9]/g, '_');
+};
+
 export const getStoredUsers = (): User[] => {
   try {
     const raw = localStorage.getItem(STORAGE_KEY_USERS);
-    if (!raw) {
-      // Seed initial admin user if empty
+    let users: User[] = raw ? JSON.parse(raw) : [];
+    
+    // Ensure admin always exists
+    const adminExists = users.some(u => u.email.toLowerCase() === ADMIN_EMAIL.toLowerCase());
+    if (!adminExists) {
       const initialAdmin: User = {
         id: 'usr_admin_default',
         email: ADMIN_EMAIL,
@@ -26,11 +36,10 @@ export const getStoredUsers = (): User[] => {
         theme: 'default-light',
         savedAssets: { template: null, stamp: null, signature: null }
       };
-      localStorage.setItem(STORAGE_KEY_USERS, JSON.stringify([initialAdmin]));
-      return [initialAdmin];
+      users.unshift(initialAdmin);
+      syncUserToFirestore(initialAdmin);
     }
-    let users: User[] = JSON.parse(raw);
-    // Cleanup any legacy 'المدير' suffix and ensure active status
+
     let changed = false;
     users = users.map(u => {
       let updated = { ...u };
@@ -44,10 +53,18 @@ export const getStoredUsers = (): User[] => {
       }
       return updated;
     });
-    if (changed) {
-      localStorage.setItem(STORAGE_KEY_USERS, JSON.stringify(users));
+
+    // Filter out any demo / sample users
+    const filteredUsers = users.filter(u => {
+      const email = u.email?.toLowerCase() || '';
+      const name = u.name || '';
+      return !email.includes('sample') && !email.includes('demo') && !name.includes('تجرب');
+    });
+
+    if (filteredUsers.length !== users.length || changed) {
+      localStorage.setItem(STORAGE_KEY_USERS, JSON.stringify(filteredUsers));
     }
-    return users;
+    return filteredUsers;
   } catch {
     return [];
   }
@@ -59,13 +76,157 @@ export const saveStoredUsers = (users: User[]) => {
   localStorage.setItem(STORAGE_KEY_USERS, JSON.stringify(users));
 };
 
+// Firestore Sync: Write user to Cloud Firestore
+export const syncUserToFirestore = async (user: User) => {
+  try {
+    if (!db || !user.email) return;
+    const docId = getDocId(user.email);
+    const userRef = doc(db, 'users', docId);
+    
+    // Clean user object for Firestore (ensure no undefined fields)
+    const cleanUser: any = {
+      id: user.id || 'usr_' + docId,
+      email: user.email.toLowerCase(),
+      name: user.name || user.email.split('@')[0],
+      role: user.email.toLowerCase() === ADMIN_EMAIL.toLowerCase() ? 'admin' : (user.role || 'user'),
+      status: user.status || 'active',
+      authProvider: user.authProvider || 'google',
+      avatar: user.avatar || '',
+      phone: user.phone || '',
+      dob: user.dob || '',
+      createdAt: user.createdAt || new Date().toISOString(),
+      lastLoginAt: user.lastLoginAt || new Date().toISOString(),
+      theme: user.theme || 'default-light'
+    };
+
+    await setDoc(userRef, cleanUser, { merge: true });
+  } catch (err) {
+    console.warn('Firestore Sync User Warning:', err);
+  }
+};
+
+// Firestore Fetch: Load all users from Cloud Firestore & merge
+export const fetchUsersFromFirestore = async (): Promise<User[]> => {
+  try {
+    if (!db) return getStoredUsers();
+    const querySnapshot = await getDocs(collection(db, 'users'));
+    const firestoreUsers: User[] = [];
+    
+    querySnapshot.forEach((docSnap) => {
+      const data = docSnap.data() as any;
+      if (data && data.email) {
+        firestoreUsers.push({
+          id: data.id || docSnap.id,
+          email: data.email,
+          name: data.name || data.email.split('@')[0],
+          phone: data.phone || '',
+          dob: data.dob || '',
+          avatar: data.avatar || '',
+          role: data.email.toLowerCase() === ADMIN_EMAIL.toLowerCase() ? 'admin' : (data.role || 'user'),
+          status: data.status === 'suspended' ? 'suspended' : 'active',
+          authProvider: data.authProvider || 'google',
+          createdAt: data.createdAt || new Date().toISOString(),
+          lastLoginAt: data.lastLoginAt || new Date().toISOString(),
+          theme: data.theme || 'default-light',
+          savedAssets: data.savedAssets || { template: null, stamp: null, signature: null }
+        });
+      }
+    });
+
+    if (firestoreUsers.length > 0) {
+      // Merge with local users
+      const localUsers = getStoredUsers();
+      const mergedMap = new Map<string, User>();
+      
+      localUsers.forEach(u => mergedMap.set(u.email.toLowerCase(), u));
+      firestoreUsers.forEach(u => {
+        const existing = mergedMap.get(u.email.toLowerCase());
+        mergedMap.set(u.email.toLowerCase(), {
+          ...u,
+          savedAssets: existing?.savedAssets || u.savedAssets
+        });
+      });
+
+      const mergedList = Array.from(mergedMap.values());
+      saveStoredUsers(mergedList);
+      return mergedList;
+    }
+  } catch (err) {
+    console.warn('Firestore Fetch Users Warning:', err);
+  }
+  return getStoredUsers();
+};
+
+// Real-time Firestore subscription for Admin
+export const subscribeToUsers = (onUpdate: (users: User[]) => void) => {
+  try {
+    if (!db) {
+      onUpdate(getStoredUsers());
+      return () => {};
+    }
+    
+    const unsubscribe = onSnapshot(
+      collection(db, 'users'),
+      (snapshot) => {
+        const firestoreUsers: User[] = [];
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data() as any;
+          if (data && data.email) {
+            firestoreUsers.push({
+              id: data.id || docSnap.id,
+              email: data.email,
+              name: data.name || data.email.split('@')[0],
+              phone: data.phone || '',
+              dob: data.dob || '',
+              avatar: data.avatar || '',
+              role: data.email.toLowerCase() === ADMIN_EMAIL.toLowerCase() ? 'admin' : (data.role || 'user'),
+              status: data.status === 'suspended' ? 'suspended' : 'active',
+              authProvider: data.authProvider || 'google',
+              createdAt: data.createdAt || new Date().toISOString(),
+              lastLoginAt: data.lastLoginAt || new Date().toISOString(),
+              theme: data.theme || 'default-light',
+              savedAssets: data.savedAssets || { template: null, stamp: null, signature: null }
+            });
+          }
+        });
+
+        if (firestoreUsers.length > 0) {
+          const localUsers = getStoredUsers();
+          const mergedMap = new Map<string, User>();
+          localUsers.forEach(u => mergedMap.set(u.email.toLowerCase(), u));
+          firestoreUsers.forEach(u => {
+            const existing = mergedMap.get(u.email.toLowerCase());
+            mergedMap.set(u.email.toLowerCase(), {
+              ...u,
+              savedAssets: existing?.savedAssets || u.savedAssets
+            });
+          });
+          const mergedList = Array.from(mergedMap.values());
+          saveStoredUsers(mergedList);
+          onUpdate(mergedList);
+        } else {
+          onUpdate(getStoredUsers());
+        }
+      },
+      (error) => {
+        console.warn('Firestore Subscription Error:', error);
+        onUpdate(getStoredUsers());
+      }
+    );
+
+    return unsubscribe;
+  } catch {
+    onUpdate(getStoredUsers());
+    return () => {};
+  }
+};
+
 export const getCurrentUser = (): User | null => {
   try {
     const raw = localStorage.getItem(STORAGE_KEY_USER);
     if (!raw) return null;
     let user: User = JSON.parse(raw);
 
-    // Clean name if needed
     if (user.name && user.name.includes('(المدير)')) {
       user.name = user.name.replace('(المدير)', '').trim();
     }
@@ -74,7 +235,6 @@ export const getCurrentUser = (): User | null => {
       user.role = 'admin';
     }
 
-    // Refresh from DB to get latest role and status
     const allUsers = getStoredUsers();
     const freshUser = allUsers.find(u => u.email.toLowerCase() === user.email.toLowerCase());
     
@@ -96,7 +256,6 @@ export const setCurrentUser = (user: User | null) => {
   if (!user) {
     localStorage.removeItem(STORAGE_KEY_USER);
   } else {
-    // Ensure active status and clean name
     if (user.name && user.name.includes('(المدير)')) {
       user.name = user.name.replace('(المدير)', '').trim();
     }
@@ -118,6 +277,7 @@ export const updateUserInDb = (user: User) => {
     users.push(user);
   }
   saveStoredUsers(users);
+  syncUserToFirestore(user);
 };
 
 export const loginWithGoogle = (googleProfile: {
@@ -131,14 +291,15 @@ export const loginWithGoogle = (googleProfile: {
   const users = getStoredUsers();
 
   let user = users.find(u => u.email.toLowerCase() === cleanEmail);
-
   let cleanName = (googleProfile.name || cleanEmail.split('@')[0]).replace('(المدير)', '').trim();
 
   if (user) {
     if (user.status === 'suspended' && !isAdminEmail) {
-      return { success: false, message: 'تم إيقاف هذا الحساب من قبل الإدارة.' };
+      return { 
+        success: false, 
+        message: 'تم إيقاف هذا الحساب مؤقتاً من قبل الإدارة. يرجى التواصل مع الإدارة لإعادة التفعيل.' 
+      };
     }
-    // Update profile info
     if (cleanName && (!user.name || user.name === 'User' || user.name.includes('(المدير)'))) {
       user.name = cleanName;
     }
@@ -154,7 +315,6 @@ export const loginWithGoogle = (googleProfile: {
     return { success: true, user, message: `مرحباً بعودتك ${user.name}` };
   }
 
-  // Create new user with Google
   const newUser: User = {
     id: 'usr_g_' + Math.random().toString(36).substring(2, 10),
     email: cleanEmail,
@@ -176,69 +336,60 @@ export const loginWithGoogle = (googleProfile: {
   return { success: true, user: newUser, message: `تم تسجيل الدخول بنجاح! مرحباً ${newUser.name}` };
 };
 
-export const addUserByAdmin = (userData: {
-  email: string;
-  name: string;
-  phone?: string;
-  dob?: string;
-  role?: 'admin' | 'user';
-}): { success: boolean; user?: User; message: string } => {
-  const cleanEmail = userData.email.trim().toLowerCase();
-  const isAdminEmail = cleanEmail === ADMIN_EMAIL.toLowerCase();
-
+export const deleteUserByAdmin = async (userId: string): Promise<boolean> => {
   const users = getStoredUsers();
-  if (users.find(u => u.email.toLowerCase() === cleanEmail)) {
-    return { success: false, message: 'هذا البريد الإلكتروني مسجل مسبقاً في النظام' };
-  }
-
-  const cleanName = userData.name.trim().replace('(المدير)', '').trim();
-
-  const newUser: User = {
-    id: 'usr_g_' + Math.random().toString(36).substring(2, 10),
-    email: cleanEmail,
-    name: cleanName,
-    phone: userData.phone?.trim() || '',
-    dob: userData.dob || '',
-    avatar: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(cleanName)}`,
-    authProvider: 'google',
-    role: isAdminEmail ? 'admin' : (userData.role || 'user'),
-    status: 'active',
-    createdAt: new Date().toISOString(),
-    lastLoginAt: new Date().toISOString(),
-    theme: 'default-light',
-    savedAssets: { template: null, stamp: null, signature: null }
-  };
-
-  users.push(newUser);
-  saveStoredUsers(users);
-  return { success: true, user: newUser, message: 'تم إضافة المستخدم بنجاح' };
-};
-
-export const deleteUserByAdmin = (userId: string): boolean => {
-  const users = getStoredUsers();
-  const userToDelete = users.find(u => u.id === userId);
+  const target = userId.trim().toLowerCase();
+  const userToDelete = users.find(u => 
+    u.id === userId || 
+    u.email.toLowerCase() === target || 
+    getDocId(u.email) === target ||
+    u.id.toLowerCase() === target
+  );
+  
   if (!userToDelete || userToDelete.email.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
     return false;
   }
-  const filtered = users.filter(u => u.id !== userId);
+  
+  const filtered = users.filter(u => u.id !== userToDelete.id && u.email.toLowerCase() !== userToDelete.email.toLowerCase());
   saveStoredUsers(filtered);
+
+  try {
+    if (db && userToDelete.email) {
+      const docId = getDocId(userToDelete.email);
+      await deleteDoc(doc(db, 'users', docId));
+    }
+  } catch (err) {
+    console.warn('Delete user from Firestore warning:', err);
+  }
   return true;
 };
 
-export const toggleUserStatus = (userId: string): { success: boolean; newStatus?: 'active' | 'suspended' } => {
+// Toggle user suspension (Temporary Account Suspension / Re-activation)
+export const toggleUserStatus = async (userId: string): Promise<{ success: boolean; newStatus?: 'active' | 'suspended' }> => {
   const users = getStoredUsers();
   const user = users.find(u => u.id === userId);
   if (!user || user.email.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
     return { success: false };
   }
+  
   user.status = user.status === 'active' ? 'suspended' : 'active';
   saveStoredUsers(users);
+
+  try {
+    if (db && user.email) {
+      const docId = getDocId(user.email);
+      await updateDoc(doc(db, 'users', docId), { status: user.status });
+    }
+  } catch (err) {
+    console.warn('Update user status in Firestore warning:', err);
+  }
+
   return { success: true, newStatus: user.status };
 };
 
 export const canUserProcessFile = (user: User | null): { allowed: boolean; reason?: string } => {
   if (!user) return { allowed: false, reason: 'يجب تسجيل الدخول لمتابعة المعالجة' };
-  if (user.status === 'suspended') return { allowed: false, reason: 'حسابك موقوف، تواصل مع الإدارة' };
+  if (user.status === 'suspended') return { allowed: false, reason: 'تم إيقاف حسابك مؤقتاً من قِبل الإدارة، يرجى التواصل مع الإدارة لإعادة التفعيل' };
   return { allowed: true };
 };
 

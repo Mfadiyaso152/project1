@@ -10,59 +10,91 @@ import {
   Mail, 
   Calendar, 
   CheckCircle2, 
-  AlertCircle
+  AlertCircle,
+  RefreshCw,
+  PauseCircle,
+  PlayCircle
 } from 'lucide-react';
 import { User } from '../types';
 import { 
   getAllUsers, 
+  fetchUsersFromFirestore,
+  subscribeToUsers,
   deleteUserByAdmin, 
   toggleUserStatus, 
-  ADMIN_EMAIL
+  ADMIN_EMAIL 
 } from '../authService';
 
 export const AdminUsersView = ({ currentUser }: { currentUser: User }) => {
-  const [users, setUsers] = useState<User[]>([]);
+  const [users, setUsers] = useState<User[]>(() => getAllUsers());
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'suspended'>('all');
   const [toastMessage, setToastMessage] = useState<{ text: string; isError?: boolean } | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const isLight = currentUser.theme !== 'space-dark';
 
-  const loadData = () => {
-    setUsers(getAllUsers());
-  };
-
   useEffect(() => {
-    loadData();
+    // 1. Initial load from local and cloud
+    fetchUsersFromFirestore().then(cloudUsers => {
+      if (cloudUsers && cloudUsers.length > 0) {
+        setUsers(cloudUsers);
+      }
+    });
+
+    // 2. Real-time subscription to cloud changes
+    const unsubscribe = subscribeToUsers((updatedUsers) => {
+      setUsers(updatedUsers);
+    });
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
   }, []);
+
+  const handleManualRefresh = async () => {
+    setIsRefreshing(true);
+    const refreshed = await fetchUsersFromFirestore();
+    setUsers(refreshed);
+    setIsRefreshing(false);
+    showToast('تم تحديث قائمة المستخدمين من السحابة بنجاح');
+  };
 
   const showToast = (text: string, isError = false) => {
     setToastMessage({ text, isError });
     setTimeout(() => setToastMessage(null), 3500);
   };
 
-  const handleToggleStatus = (user: User) => {
+  const handleToggleStatus = async (user: User) => {
     if (user.email.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
       showToast('لا يمكن إيقاف حساب المدير الرئيسي', true);
       return;
     }
-    const res = toggleUserStatus(user.id);
+    
+    const wasActive = user.status === 'active';
+    const res = await toggleUserStatus(user.id);
+    
     if (res.success) {
-      showToast(res.newStatus === 'active' ? `تم تفعيل حساب ${user.name}` : `تم إيقاف حساب ${user.name}`);
-      loadData();
+      if (res.newStatus === 'suspended') {
+        showToast(`تم إيقاف حساب "${user.name}" مؤقتاً بنجاح`);
+      } else {
+        showToast(`تم إلغاء الإيقاف وتفعيل حساب "${user.name}" بنجاح`);
+      }
+    } else {
+      showToast('تعذر تغيير حالة الحساب', true);
     }
   };
 
-  const handleDeleteUser = (user: User) => {
+  const handleDeleteUser = async (user: User) => {
     if (user.email.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
       showToast('لا يمكن حذف حساب المدير الرئيسي', true);
       return;
     }
-    if (window.confirm(`هل أنت متأكد من حذف حساب "${user.name}" (${user.email})؟`)) {
-      const ok = deleteUserByAdmin(user.id);
+    if (window.confirm(`هل أنت متأكد من حذف حساب "${user.name}" (${user.email}) نهائياً؟`)) {
+      const ok = await deleteUserByAdmin(user.id);
       if (ok) {
+        setUsers(prev => prev.filter(u => u.id !== user.id && u.email.toLowerCase() !== user.email.toLowerCase()));
         showToast('تم حذف المستخدم بنجاح');
-        loadData();
       } else {
         showToast('حدث خطأ أثناء محاولة الحذف', true);
       }
@@ -82,8 +114,12 @@ export const AdminUsersView = ({ currentUser }: { currentUser: User }) => {
     return matchesSearch && matchesStatus;
   });
 
+  const activeCount = users.filter(u => u.status === 'active').length;
+  const suspendedCount = users.filter(u => u.status === 'suspended').length;
+
   const cardBg = isLight ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800';
   const textPrimary = isLight ? 'text-slate-900' : 'text-white';
+  const textSecondary = isLight ? 'text-slate-500' : 'text-slate-400';
 
   return (
     <div className="max-w-4xl mx-auto w-full flex flex-col gap-5 animate-fade-in-up pb-safe px-2 sm:px-0" dir="rtl">
@@ -100,14 +136,49 @@ export const AdminUsersView = ({ currentUser }: { currentUser: User }) => {
         </div>
       )}
 
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h2 className={`text-2xl font-black flex items-center gap-3 ${textPrimary}`}>
+      {/* Header with Cloud Sync */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-3">
           <div className="p-2.5 bg-teal-500 text-white rounded-2xl shadow-md shadow-teal-500/20">
             <Users size={22} />
           </div>
-          إدارة المستخدمين
-        </h2>
+          <div>
+            <h2 className={`text-2xl font-black ${textPrimary}`}>
+              إدارة المستخدمين
+            </h2>
+            <p className={`text-xs ${textSecondary}`}>
+              مزامنة فورية عبر السحابة لجميع المسجلين
+            </p>
+          </div>
+        </div>
+
+        <button
+          onClick={handleManualRefresh}
+          disabled={isRefreshing}
+          className={`flex items-center gap-2 px-4 py-2 rounded-2xl text-xs font-bold border transition-all cursor-pointer shadow-sm ${
+            isLight ? 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200' : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+          }`}
+          title="تحديث البيانات من السحابة"
+        >
+          <RefreshCw size={14} className={isRefreshing ? 'animate-spin text-teal-500' : 'text-teal-600'} />
+          <span>{isRefreshing ? 'جاري التحديث...' : 'تحديث من السحابة'}</span>
+        </button>
+      </div>
+
+      {/* Stats Summary Cards */}
+      <div className="grid grid-cols-3 gap-3">
+        <div className={`p-4 rounded-2xl border text-center ${cardBg}`}>
+          <span className={`text-xs font-bold ${textSecondary}`}>إجمالي المسجلين</span>
+          <p className="text-xl font-black text-teal-600 mt-1">{users.length}</p>
+        </div>
+        <div className={`p-4 rounded-2xl border text-center ${cardBg}`}>
+          <span className={`text-xs font-bold ${textSecondary}`}>الحسابات النشطة</span>
+          <p className="text-xl font-black text-emerald-600 mt-1">{activeCount}</p>
+        </div>
+        <div className={`p-4 rounded-2xl border text-center ${cardBg}`}>
+          <span className={`text-xs font-bold ${textSecondary}`}>الموقوفة مؤقتاً</span>
+          <p className="text-xl font-black text-amber-600 mt-1">{suspendedCount}</p>
+        </div>
       </div>
 
       {/* Filter and Search Bar */}
@@ -134,8 +205,8 @@ export const AdminUsersView = ({ currentUser }: { currentUser: User }) => {
             }`}
           >
             <option value="all">جميع الحسابات ({users.length})</option>
-            <option value="active">الحسابات النشطة</option>
-            <option value="suspended">الحسابات الموقوفة</option>
+            <option value="active">الحسابات النشطة ({activeCount})</option>
+            <option value="suspended">الموقوفة مؤقتاً ({suspendedCount})</option>
           </select>
         </div>
       </div>
@@ -155,9 +226,9 @@ export const AdminUsersView = ({ currentUser }: { currentUser: User }) => {
 
             return (
               <div
-                key={user.id}
+                key={user.id || user.email}
                 className={`p-4 sm:p-5 rounded-2xl border shadow-sm transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${cardBg} ${
-                  !isActive ? 'opacity-70 border-red-200' : ''
+                  !isActive ? (isLight ? 'bg-amber-50/50 border-amber-200' : 'bg-amber-950/20 border-amber-800/40') : ''
                 }`}
               >
                 {/* User Info */}
@@ -185,12 +256,12 @@ export const AdminUsersView = ({ currentUser }: { currentUser: User }) => {
                           مشرف
                         </span>
                       )}
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                      <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
                         isActive 
                           ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
-                          : 'bg-red-50 text-red-700 border-red-200'
+                          : 'bg-amber-100 text-amber-900 border-amber-300 font-black'
                       }`}>
-                        {isActive ? 'نشط' : 'موقوف'}
+                        {isActive ? 'نشط' : 'موقوف مؤقتاً'}
                       </span>
                     </div>
 
@@ -216,7 +287,7 @@ export const AdminUsersView = ({ currentUser }: { currentUser: User }) => {
                 </div>
 
                 {/* Actions Toolbar */}
-                <div className="flex items-center gap-2 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100 justify-end">
+                <div className="flex items-center gap-2 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100 dark:border-slate-800 justify-end flex-wrap">
                   {/* WhatsApp Quick Link */}
                   {user.phone && (
                     <a
@@ -231,25 +302,36 @@ export const AdminUsersView = ({ currentUser }: { currentUser: User }) => {
                     </a>
                   )}
 
-                  {/* Toggle Active / Suspended */}
+                  {/* Temporary Suspension / Re-activation Button */}
                   {!isPrimaryAdmin && (
                     <button
+                      type="button"
                       onClick={() => handleToggleStatus(user)}
-                      className={`p-2 rounded-xl text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer border ${
+                      className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border shadow-sm ${
                         isActive 
-                          ? 'bg-amber-50 hover:bg-amber-100 text-amber-600 border-amber-200' 
-                          : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-600 border-emerald-200'
+                          ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-300' 
+                          : 'bg-emerald-500 hover:bg-emerald-600 text-white border-emerald-600 shadow-emerald-500/20'
                       }`}
-                      title={isActive ? 'إيقاف الحساب' : 'تفعيل الحساب'}
+                      title={isActive ? 'إيقاف الحساب مؤقتاً' : 'إلغاء الإيقاف وإعادة تفعيل الحساب'}
                     >
-                      {isActive ? <UserX size={14} /> : <UserCheck size={14} />}
-                      <span className="hidden md:inline">{isActive ? 'إيقاف' : 'تفعيل'}</span>
+                      {isActive ? (
+                        <>
+                          <PauseCircle size={15} className="text-amber-600" />
+                          <span>إيقاف مؤقت</span>
+                        </>
+                      ) : (
+                        <>
+                          <PlayCircle size={15} className="text-white" />
+                          <span>إلغاء الإيقاف</span>
+                        </>
+                      )}
                     </button>
                   )}
 
                   {/* Delete User */}
                   {!isPrimaryAdmin && (
                     <button
+                      type="button"
                       onClick={() => handleDeleteUser(user)}
                       className="p-2 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 text-xs font-bold transition-colors cursor-pointer"
                       title="حذف الحساب نهائياً"

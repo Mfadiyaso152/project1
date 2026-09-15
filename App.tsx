@@ -41,6 +41,16 @@ const App: React.FC = () => {
     setUser(getCurrentUser());
   };
 
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const fresh = getCurrentUser();
+      if (fresh) {
+        setUser(fresh);
+      }
+    }, 4000);
+    return () => clearInterval(interval);
+  }, []);
+
   const isAdmin = currentUser?.role === 'admin' || currentUser?.email.toLowerCase() === ADMIN_EMAIL.toLowerCase();
 
   // PDF Loading Logic
@@ -232,7 +242,7 @@ const App: React.FC = () => {
       {/* Floating Logo Top Right */}
       {step !== Step.EDITOR && (
         <header className="fixed top-5 right-6 left-6 z-40 flex items-center justify-between pointer-events-none max-w-6xl mx-auto">
-          <div className="pointer-events-auto flex items-center gap-3 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md px-4 py-2 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+          <div className="pointer-events-auto flex items-center gap-3 bg-white/20 dark:bg-slate-900/20 backdrop-blur-2xl px-4 py-2 rounded-2xl border border-white/25 dark:border-slate-700/25 shadow-[0_8px_32px_0_rgba(0,0,0,0.1)]">
             <div className="p-1.5 bg-teal-500 text-white rounded-xl">
               <FileText size={22} className="stroke-[2.5]" />
             </div>
@@ -415,6 +425,31 @@ const App: React.FC = () => {
           }}
           onClose={() => setIsDrawingSignature(false)}
         />
+      )}
+
+      {/* Suspension Block Modal */}
+      {currentUser?.status === 'suspended' && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4" dir="rtl">
+          <div className="bg-white rounded-3xl max-w-md w-full p-8 shadow-2xl text-center flex flex-col items-center gap-4 animate-scale-in">
+            <div className="w-16 h-16 rounded-2xl bg-amber-100 text-amber-600 flex items-center justify-center shadow-sm">
+              <AlertCircle size={36} />
+            </div>
+            <h3 className="text-xl font-black text-slate-900">تم إيقاف حسابك مؤقتاً</h3>
+            <p className="text-sm text-slate-600 leading-relaxed">
+              تم إيقاف حسابك من قِبل الإدارة. لا يمكنك تنفيذ أي عمليات أو استخدام خدمات المنصة حتى يتم إعادة تفعيل حسابك.
+            </p>
+            <button
+              onClick={() => {
+                setCurrentUser(null);
+                setUser(null);
+                setStep(Step.LANDING);
+              }}
+              className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-3.5 rounded-2xl transition-all cursor-pointer mt-2 shadow-md"
+            >
+              تسجيل الخروج
+            </button>
+          </div>
+        </div>
       )}
 
       {step !== Step.EDITOR && (

@@ -125,24 +125,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <ArrowRight size={16} className="text-teal-600 group-hover:-translate-x-1 transition-transform" />
             </button>
 
-            {/* Demo Customer Quick Button */}
-            <button
-              type="button"
-              disabled={isLoading}
-              onClick={() => handleGoogleQuickLogin('client.sample@gmail.com', 'عميل تجريبي')}
-              className="flex items-center justify-between p-3.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 transition-all cursor-pointer group text-right"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-lg bg-slate-300 text-slate-700 flex items-center justify-center font-bold text-xs">
-                  عميل
-                </div>
-                <div>
-                  <div className="text-xs font-bold text-slate-800">حساب عميل تجريبي</div>
-                  <span className="text-[11px] text-slate-500 font-mono">client.sample@gmail.com</span>
-                </div>
-              </div>
-              <ArrowRight size={16} className="text-slate-400 group-hover:-translate-x-1 transition-transform" />
-            </button>
+
           </div>
         ) : (
           <form onSubmit={handleCustomSubmit} className="flex flex-col gap-4">

@@ -21,7 +21,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   const isLight = currentUser?.theme === 'default-light' || !currentUser;
   const isAdmin = currentUser?.role === 'admin' || currentUser?.email.toLowerCase() === ADMIN_EMAIL.toLowerCase();
 
-  const bgClass = 'bg-white/80 dark:bg-slate-900/80 backdrop-blur-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-[0_-8px_30px_rgba(0,0,0,0.08)]';
+  const bgClass = 'bg-white/20 dark:bg-slate-900/20 backdrop-blur-2xl border border-white/25 dark:border-slate-700/25 shadow-[0_8px_32px_0_rgba(0,0,0,0.1)]';
   const textClass = isLight ? 'text-slate-500' : 'text-slate-400';
   const activeClass = isLight ? 'text-teal-600' : 'text-teal-400';
 

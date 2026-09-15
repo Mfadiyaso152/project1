@@ -14,7 +14,10 @@ import {
   CheckSquare, 
   Copy,
   PenTool,
-  Stamp
+  Stamp,
+  Share2,
+  MessageCircle,
+  X
 } from 'lucide-react';
 
 interface CanvasEditorProps {
@@ -45,6 +48,39 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset }) => {
   // Customization
   const [originalOpacity, setOriginalOpacity] = useState(1);
   const [isExporting, setIsExporting] = useState(false);
+  const [exportedBlob, setExportedBlob] = useState<Blob | null>(null);
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [isExported, setIsExported] = useState(false);
+
+  const handleDownloadFile = () => {
+    if (!exportedBlob) return;
+    const url = URL.createObjectURL(exportedBlob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'watheeq-certified-document.pdf';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleWhatsAppShare = async () => {
+    handleDownloadFile();
+    if (exportedBlob && navigator.canShare && navigator.canShare({ files: [new File([exportedBlob], 'certified-document.pdf', { type: 'application/pdf' })] })) {
+      try {
+        await navigator.share({
+          title: 'مستند موثق عبر وثيق',
+          text: 'مرحباً، تم توثيق وتوقيع هذا المستند رسمياً عبر منصة وثيق.',
+          files: [new File([exportedBlob], 'certified-document.pdf', { type: 'application/pdf' })]
+        });
+        return;
+      } catch (err) {
+        console.log('Share canceled');
+      }
+    }
+    const text = encodeURIComponent('مرحباً، تم توثيق المستند رسمياً عبر منصة وثيق 📄✨. (تم تحميل الملف على جهازك، يمكنك إرفاقه مباشرة).');
+    window.open(`https://wa.me/?text=${text}`, '_blank');
+  };
 
   // Helper: Get template page for specific original page index
   const getTemplateForPage = (index: number): string | null => {
@@ -509,7 +545,11 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset }) => {
         pdf.addImage(imgData, 'JPEG', 0, 0, 210, 297);
       }
 
-      pdf.save('merged-document.pdf');
+      const pdfBlob = pdf.output('blob');
+      setExportedBlob(pdfBlob);
+      setIsExported(true);
+      setShowShareModal(true);
+      pdf.save('watheeq-certified-document.pdf');
     } catch (error) {
       console.error("Export failed", error);
       alert("حدث خطأ أثناء تصدير الملف");
@@ -881,6 +921,16 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset }) => {
               </>
             )}
           </button>
+
+          {isExported && (
+            <button
+              onClick={() => setShowShareModal(true)}
+              className="flex items-center justify-center gap-2 w-full bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700 text-white py-3.5 rounded-xl font-bold shadow-lg shadow-teal-500/20 transition-all cursor-pointer animate-fade-in"
+            >
+              <Share2 size={18} />
+              مشاركة المستند الموثق 📤
+            </button>
+          )}
           
           <button
             onClick={onReset}
@@ -892,6 +942,57 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset }) => {
         </div>
 
       </div>
+
+      {/* Share Modal */}
+      {showShareModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in" dir="rtl">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-2xl flex flex-col gap-6 relative">
+            <button 
+              onClick={() => setShowShareModal(false)}
+              className="absolute top-5 left-5 text-slate-400 hover:text-slate-700 p-2 rounded-full bg-slate-100 transition-colors cursor-pointer"
+            >
+              <X size={18} />
+            </button>
+
+            <div className="flex items-center gap-3.5">
+              <div className="w-12 h-12 rounded-2xl bg-teal-100 text-teal-600 flex items-center justify-center shrink-0">
+                <Share2 size={24} />
+              </div>
+              <div>
+                <h3 className="text-xl font-black text-slate-900">تم توثيق المستند بنجاح!</h3>
+                <p className="text-xs text-slate-500 mt-0.5">جاهز الآن للحفظ أو الإرسال المباشر عبر واتساب</p>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-3">
+              <button
+                onClick={handleWhatsAppShare}
+                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3.5 px-4 rounded-2xl transition-all shadow-md shadow-emerald-600/20 flex items-center justify-center gap-3 cursor-pointer"
+              >
+                <MessageCircle size={20} />
+                <span>إرسال عبر واتساب (دايركت) 📲</span>
+              </button>
+
+              <button
+                onClick={handleDownloadFile}
+                className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-3.5 px-4 rounded-2xl transition-all shadow-md flex items-center justify-center gap-3 cursor-pointer"
+              >
+                <Download size={20} />
+                <span>حفظ الملف على الجهاز 📥</span>
+              </button>
+            </div>
+
+            <div className="text-center pt-2 border-t border-slate-100">
+              <button
+                onClick={() => setShowShareModal(false)}
+                className="text-xs font-bold text-slate-500 hover:text-slate-700 py-2 cursor-pointer"
+              >
+                إغلاق النافذة
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Hidden Canvas for Processing */}
       <canvas ref={canvasRef} className="hidden" />
