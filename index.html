@@ -46,34 +46,57 @@
         display: none !important;
       }
       
-      /* Beautiful Fade In animations with smooth Bezier curve */
-      @keyframes fadeInUp {
-        from {
+      /* Luxury Keyframes & Smooth Spring Transitions */
+      @keyframes pageLuxuryEnter {
+        0% {
           opacity: 0;
-          transform: translateY(20px);
+          transform: translateY(16px) scale(0.99);
+          filter: blur(4px);
         }
-        to {
+        100% {
           opacity: 1;
-          transform: translateY(0);
+          transform: translateY(0) scale(1);
+          filter: blur(0px);
         }
       }
-      @keyframes fadeIn {
-        from {
-          opacity: 0;
+      
+      @keyframes luxuryCardFloat {
+        0%, 100% {
+          transform: translateY(0px);
         }
-        to {
-          opacity: 1;
+        50% {
+          transform: translateY(-4px);
         }
       }
-      @keyframes scaleIn {
-        from {
+
+      @keyframes modalSpringIn {
+        0% {
           opacity: 0;
-          transform: scale(0.97);
+          transform: scale(0.92) translateY(20px);
         }
-        to {
+        70% {
+          transform: scale(1.015) translateY(-2px);
+        }
+        100% {
+          opacity: 1;
+          transform: scale(1) translateY(0);
+        }
+      }
+
+      @keyframes pageSlideFade {
+        0% {
+          opacity: 0.4;
+          transform: scale(0.98);
+        }
+        100% {
           opacity: 1;
           transform: scale(1);
         }
+      }
+
+      @keyframes shimmerLux {
+        0% { background-position: -200% 0; }
+        100% { background-position: 200% 0; }
       }
       
       @keyframes pulseGlow {
@@ -83,35 +106,50 @@
         }
         50% {
           opacity: 1;
-          transform: scale(1.06);
+          transform: scale(1.05);
         }
       }
+
       @keyframes luxurySpin {
         0% { transform: rotate(0deg); }
         100% { transform: rotate(360deg); }
       }
+
       @keyframes luxurySpinReverse {
         0% { transform: rotate(360deg); }
         100% { transform: rotate(0deg); }
       }
       
+      .animate-page-enter {
+        animation: pageLuxuryEnter 0.42s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      }
+
       .animate-fade-in-up {
-        animation: fadeInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        animation: pageLuxuryEnter 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
       }
+
       .animate-fade-in {
-        animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        animation: pageSlideFade 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
       }
+
       .animate-scale-in {
-        animation: scaleIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        animation: modalSpringIn 0.38s cubic-bezier(0.16, 1, 0.3, 1) forwards;
       }
+
       .animate-pulse-glow {
         animation: pulseGlow 2.5s ease-in-out infinite;
       }
+
       .animate-spin-slow {
         animation: luxurySpin 10s linear infinite;
       }
+
       .animate-spin-reverse-slow {
         animation: luxurySpinReverse 7s linear infinite;
+      }
+
+      .animate-card-float {
+        animation: luxuryCardFloat 6s ease-in-out infinite;
       }
 
       .pb-safe {
@@ -121,12 +159,26 @@
         padding-top: env(safe-area-inset-top, 20px);
       }
 
-      html { scroll-behavior: smooth; }
-      /* Smooth transitions for all interactive elements */
-      button, input, a, div, span, nav, header, main {
-        transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow, transform, filter, backdrop-filter;
-        transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-        transition-duration: 300ms;
+      html { 
+        scroll-behavior: smooth; 
+      }
+
+      /* Specific smooth transitions for buttons and cards without lagging drag items */
+      button, a, input, select, textarea, .transition-smooth {
+        transition-property: color, background-color, border-color, box-shadow, transform, opacity;
+        transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+        transition-duration: 220ms;
+      }
+      
+      /* Active element spring bounce */
+      button:active:not(:disabled), a:active {
+        transform: scale(0.975);
+      }
+
+      /* Dragging elements must NEVER animate position */
+      .canvas-draggable {
+        transition: none !important;
+        will-change: left, top;
       }
     </style>
   </head>

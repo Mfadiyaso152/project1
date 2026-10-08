@@ -249,6 +249,19 @@ const App: React.FC = () => {
     showToast('تم الرجوع إلى الصفحة الرئيسية مع الاحتفاظ بملفاتك ✅');
   };
 
+  const handleStartFresh = () => {
+    setDocs({
+      original: null,
+      originalPages: [],
+      template: null,
+      templatePages: [],
+      stamp: null,
+      signature: null,
+    });
+    setStep(Step.UPLOAD);
+    showToast('تم بدء معاملة جديدة وتفريغ الملفات بنجاح ✨');
+  };
+
   // Landing Flow
   if (step === Step.LANDING) {
     return <LandingView onStart={() => setStep(Step.AUTH)} />;
@@ -556,6 +569,7 @@ const App: React.FC = () => {
           <CanvasEditor 
             documents={docs} 
             onReset={handleStartOver}
+            onStartFresh={handleStartFresh}
           />
         )}
 
