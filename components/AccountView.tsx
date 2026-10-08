@@ -27,6 +27,36 @@ interface AccountViewProps {
   onUpdate: () => void;
 }
 
+const loadPdfFirstPage = async (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const fileReader = new FileReader();
+    fileReader.onload = async function() {
+      try {
+        const typedarray = new Uint8Array(this.result as ArrayBuffer);
+        const pdfjsLib = (window as any).pdfjsLib;
+        if (!pdfjsLib) throw new Error("مكتبة معالجة ملفات PDF قيد التحميل، يرجى المحاولة بعد لحظات.");
+        const pdf = await pdfjsLib.getDocument({ data: typedarray }).promise;
+        const page = await pdf.getPage(1);
+        const viewport = page.getViewport({ scale: 2.0 });
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+        if (context) {
+          canvas.height = viewport.height;
+          canvas.width = viewport.width;
+          await page.render({ canvasContext: context, viewport: viewport }).promise;
+          resolve(canvas.toDataURL('image/jpeg', 0.9));
+        } else {
+          reject(new Error('Canvas context not available'));
+        }
+      } catch (err) {
+        reject(err);
+      }
+    };
+    fileReader.onerror = (err) => reject(err);
+    fileReader.readAsArrayBuffer(file);
+  });
+};
+
 export const AccountView: React.FC<AccountViewProps> = ({
   currentUser,
   onBack,
@@ -44,17 +74,30 @@ export const AccountView: React.FC<AccountViewProps> = ({
 
   const handleAssetUpload = async (type: 'template' | 'stamp' | 'signature', file: File) => {
     setSavingType(type);
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      const dataUrl = e.target?.result as string;
+    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+    try {
+      let dataUrl: string;
+      if (isPdf) {
+        showToast('جاري معالجة واستخراج صفحة الـ PDF...');
+        dataUrl = await loadPdfFirstPage(file);
+      } else {
+        dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = (e) => resolve(e.target?.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+      }
       if (dataUrl) {
         await saveUserAsset(type, dataUrl, currentUser);
-        setSavingType(null);
         showToast(`تم حفظ ${type === 'template' ? 'الورقة الرسمية' : type === 'stamp' ? 'الختم' : 'التوقيع'} في السيرفر وربطه بحسابك بنجاح ✅`);
         onUpdate();
       }
-    };
-    reader.readAsDataURL(file);
+    } catch (err: any) {
+      showToast('خطأ أثناء معالجة الملف: ' + (err?.message || err));
+    } finally {
+      setSavingType(null);
+    }
   };
 
   const handleSignatureSave = async (dataUrl: string) => {
@@ -196,16 +239,20 @@ export const AccountView: React.FC<AccountViewProps> = ({
               </div>
 
               {/* Upload Action */}
-              <label className="w-full bg-white hover:bg-blue-50 text-blue-700 hover:text-blue-800 border border-blue-200 hover:border-blue-400 py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs">
-                <Upload size={14} />
-                <span>{templateAsset ? 'تغيير الورقة' : 'رفع ورقة رسمية'}</span>
+              <label className="w-full bg-white hover:bg-blue-50 text-blue-700 hover:text-blue-800 border border-blue-200 hover:border-blue-400 py-2.5 px-3 rounded-xl font-bold text-xs flex flex-col items-center justify-center gap-0.5 transition-all cursor-pointer shadow-xs">
+                <div className="flex items-center gap-1.5">
+                  <Upload size={14} />
+                  <span>{templateAsset ? 'تغيير الورقة' : 'رفع ورقة رسمية'}</span>
+                </div>
+                <span className="text-[10px] text-slate-400 font-normal">صورة أو ملف PDF</span>
                 <input 
                   type="file" 
-                  accept="image/*" 
+                  accept="image/*,application/pdf" 
                   className="hidden" 
                   onChange={(e) => {
                     if (e.target.files && e.target.files[0]) {
                       handleAssetUpload('template', e.target.files[0]);
+                      e.target.value = '';
                     }
                   }} 
                 />
@@ -251,16 +298,20 @@ export const AccountView: React.FC<AccountViewProps> = ({
               </div>
 
               {/* Upload Action */}
-              <label className="w-full bg-white hover:bg-blue-50 text-blue-700 hover:text-blue-800 border border-blue-200 hover:border-blue-400 py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs">
-                <Upload size={14} />
-                <span>{stampAsset ? 'تغيير الختم' : 'رفع ختم رسمي'}</span>
+              <label className="w-full bg-white hover:bg-blue-50 text-blue-700 hover:text-blue-800 border border-blue-200 hover:border-blue-400 py-2.5 px-3 rounded-xl font-bold text-xs flex flex-col items-center justify-center gap-0.5 transition-all cursor-pointer shadow-xs">
+                <div className="flex items-center gap-1.5">
+                  <Upload size={14} />
+                  <span>{stampAsset ? 'تغيير الختم' : 'رفع ختم رسمي'}</span>
+                </div>
+                <span className="text-[10px] text-slate-400 font-normal">صورة مفرغة أو PDF</span>
                 <input 
                   type="file" 
-                  accept="image/png, image/jpeg" 
+                  accept="image/png, image/jpeg, application/pdf" 
                   className="hidden" 
                   onChange={(e) => {
                     if (e.target.files && e.target.files[0]) {
                       handleAssetUpload('stamp', e.target.files[0]);
+                      e.target.value = '';
                     }
                   }} 
                 />

@@ -405,7 +405,7 @@ const App: React.FC = () => {
                   <div className="flex flex-col gap-2">
                     <FileUpload
                       label="ورقة المؤسسة الرسمية"
-                      subLabel="خلفية رسمية للخطابات (اختياري)"
+                      subLabel="ملف PDF أو صورة (خلفية للخطابات)"
                       accept="image/*,application/pdf"
                       multiple={true}
                       value={docs.templatePages.length > 0 ? docs.templatePages : docs.template}

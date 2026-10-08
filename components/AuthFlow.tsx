@@ -127,9 +127,6 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({ onSuccess, onCancel }) => {
           <h1 className="text-2xl font-black text-slate-900 mb-1.5">
             تسجيل الدخول
           </h1>
-          <p className="text-slate-500 text-xs">
-            سجّل دخولك بحسابك المعتمد للدخول إلى منصة وثيق
-          </p>
         </div>
 
         {/* Error / Success Messages */}
