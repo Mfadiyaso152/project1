@@ -3,19 +3,23 @@ import { getAuth, GoogleAuthProvider } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 
 export const firebaseConfig = {
-  apiKey: "AIzaSyDJEQVsDsULKJlhrmbOTxqYkp7rFJJehxM",
-  authDomain: "wthiq-f6b9d.firebaseapp.com",
-  projectId: "wthiq-f6b9d",
-  storageBucket: "wthiq-f6b9d.firebasestorage.app",
-  messagingSenderId: "260579486284",
-  appId: "1:260579486284:web:a8847d960f44e669fb22e9",
-  measurementId: "G-GYZC2EDDCL"
+  projectId: "citric-phenomenon-f7854",
+  appId: "1:861861448789:web:19627ed12a42279a4218dc",
+  apiKey: "AIzaSyBd9q2uMl7WyADoGHukxnLJjmTHGOogu3E",
+  authDomain: "citric-phenomenon-f7854.firebaseapp.com",
+  firestoreDatabaseId: "ai-studio-77d4c6b1-d7c0-4f06-aefa-d2bff8279f8c",
+  storageBucket: "citric-phenomenon-f7854.firebasestorage.app",
+  messagingSenderId: "861861448789",
+  measurementId: ""
 };
 
 // Initialize Firebase App
 export const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+
+// Initialize Firestore with the exact named database provisioned for this applet
+export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({
   prompt: 'select_account'

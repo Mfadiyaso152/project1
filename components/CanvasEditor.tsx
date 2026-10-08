@@ -1,41 +1,49 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { jsPDF } from 'jspdf';
-import { DocumentState, StampPosition } from '../types';
+import { DocumentState, StampPosition, User } from '../types';
 import { 
   Move, 
   Download, 
   RefreshCcw, 
   ZoomIn, 
   ZoomOut, 
-  AlertCircle, 
-  Sparkles, 
   Check, 
-  Square, 
-  CheckSquare, 
-  Copy,
   PenTool,
   Stamp,
   Share2,
-  MessageCircle,
   X,
   FileCheck,
   ChevronRight,
   ChevronLeft,
   FilePlus,
-  Layers,
+  BookmarkCheck,
+  Upload,
   RotateCcw,
-  CheckCircle2
+  PlusCircle,
+  Eye,
+  EyeOff
 } from 'lucide-react';
+import SignaturePad from './SignaturePad';
+import { saveUserAsset } from '../authService';
 
 interface CanvasEditorProps {
   documents: DocumentState;
   onReset: () => void;
   onStartFresh: () => void;
+  currentUser?: User | null;
+  onUpdateDocs?: (updater: (prev: DocumentState) => DocumentState) => void;
 }
 
-const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset, onStartFresh }) => {
+export const CanvasEditor: React.FC<CanvasEditorProps> = ({ 
+  documents, 
+  onReset, 
+  onStartFresh,
+  currentUser,
+  onUpdateDocs
+}) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const stampFileInputRef = useRef<HTMLInputElement>(null);
+  const sigFileInputRef = useRef<HTMLInputElement>(null);
   
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [stampConfigs, setStampConfigs] = useState<{ [key: number]: StampPosition }>({});
@@ -50,6 +58,13 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset, onStart
   const [isExported, setIsExported] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [showFreshConfirmModal, setShowFreshConfirmModal] = useState(false);
+  const [isDrawingSigModal, setIsDrawingSigModal] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3000);
+  };
 
   const totalPages = documents.originalPages.length || (documents.original ? 1 : 0);
 
@@ -62,69 +77,99 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset, onStart
     return documents.templatePages[documents.templatePages.length - 1];
   };
 
+  // Safe, clamped dimensions & coordinates calculator that NEVER allows off-screen or negative positions
+  const getSafeDimensions = useCallback(() => {
+    const el = containerRef.current;
+    const w = (el && el.clientWidth > 50) ? el.clientWidth : 420;
+    const h = (el && el.clientHeight > 50) ? el.clientHeight : Math.round(w * (297 / 210));
+    return { w, h };
+  }, []);
+
+  const getSafeStampConfig = useCallback((pageIdx: number): StampPosition => {
+    const { w, h } = getSafeDimensions();
+    const saved = stampConfigs[pageIdx];
+    const size = saved?.size || 130;
+
+    // Default position: lower right area (traditional placement for official stamps in Arabic documents)
+    const defaultX = Math.round(w * 0.12);
+    const defaultY = Math.max(10, Math.round(h - size - 36));
+
+    let x = (saved?.x !== undefined && !isNaN(saved.x)) ? saved.x : defaultX;
+    let y = (saved?.y !== undefined && !isNaN(saved.y)) ? saved.y : defaultY;
+
+    // Strict clamping within visible paper
+    x = Math.max(8, Math.min(x, w - size - 8));
+    y = Math.max(8, Math.min(y, h - size - 8));
+
+    return {
+      x,
+      y,
+      size,
+      enabled: saved?.enabled !== undefined ? saved.enabled : !!documents.stamp
+    };
+  }, [stampConfigs, getSafeDimensions, documents.stamp]);
+
+  const getSafeSignatureConfig = useCallback((pageIdx: number): StampPosition => {
+    const { w, h } = getSafeDimensions();
+    const saved = signatureConfigs[pageIdx];
+    const size = saved?.size || 130;
+
+    // Default position: lower left area (traditional placement for signature in Arabic documents)
+    const defaultX = Math.max(10, Math.round(w - size - (w * 0.12)));
+    const defaultY = Math.max(10, Math.round(h - size - 36));
+
+    let x = (saved?.x !== undefined && !isNaN(saved.x)) ? saved.x : defaultX;
+    let y = (saved?.y !== undefined && !isNaN(saved.y)) ? saved.y : defaultY;
+
+    // Strict clamping within visible paper
+    x = Math.max(8, Math.min(x, w - size - 8));
+    y = Math.max(8, Math.min(y, h - size - 8));
+
+    return {
+      x,
+      y,
+      size,
+      enabled: saved?.enabled !== undefined ? saved.enabled : !!documents.signature
+    };
+  }, [signatureConfigs, getSafeDimensions, documents.signature]);
+
+  // Keep configs updated across all pages
   useEffect(() => {
-    if (containerRef.current) {
-      const { width, height } = containerRef.current.getBoundingClientRect();
-      const w = width || 400;
-      const h = height || 565;
-      
-      const defaultStampX = (w / 2) - 65;
-      const defaultStampY = h - 150;
-      const defaultSignatureX = (w / 2) - 65;
-      const defaultSignatureY = h - 260;
-
-      const pageCount = Math.max(1, totalPages);
-
-      setStampConfigs(prev => {
-        const updated = { ...prev };
-        for (let idx = 0; idx < pageCount; idx++) {
-          if (!updated[idx]) {
-            updated[idx] = {
-              x: defaultStampX,
-              y: defaultStampY,
-              size: 130,
-              enabled: !!documents.stamp
-            };
-          }
+    const pageCount = Math.max(1, totalPages);
+    setStampConfigs(prev => {
+      const next = { ...prev };
+      for (let i = 0; i < pageCount; i++) {
+        if (!next[i]) {
+          const safe = getSafeStampConfig(i);
+          next[i] = safe;
+        } else if (documents.stamp && next[i].enabled === false && prev[i] === undefined) {
+          next[i].enabled = true;
         }
-        return updated;
-      });
+      }
+      return next;
+    });
 
-      setSignatureConfigs(prev => {
-        const updated = { ...prev };
-        for (let idx = 0; idx < pageCount; idx++) {
-          if (!updated[idx]) {
-            updated[idx] = {
-              x: defaultSignatureX,
-              y: defaultSignatureY,
-              size: 130,
-              enabled: !!documents.signature
-            };
-          }
+    setSignatureConfigs(prev => {
+      const next = { ...prev };
+      for (let i = 0; i < pageCount; i++) {
+        if (!next[i]) {
+          const safe = getSafeSignatureConfig(i);
+          next[i] = safe;
+        } else if (documents.signature && next[i].enabled === false && prev[i] === undefined) {
+          next[i].enabled = true;
         }
-        return updated;
-      });
-    }
-  }, [totalPages, documents.stamp, documents.signature]);
+      }
+      return next;
+    });
+  }, [totalPages, documents.stamp, documents.signature, getSafeStampConfig, getSafeSignatureConfig]);
 
-  const currentStampConfig = stampConfigs[currentPageIndex] || {
-    x: 100,
-    y: 350,
-    size: 130,
-    enabled: !!documents.stamp
-  };
-
-  const currentSignatureConfig = signatureConfigs[currentPageIndex] || {
-    x: 100,
-    y: 200,
-    size: 130,
-    enabled: !!documents.signature
-  };
+  const currentStampConfig = getSafeStampConfig(currentPageIndex);
+  const currentSignatureConfig = getSafeSignatureConfig(currentPageIndex);
 
   // Toggle Stamp for a specific page
   const toggleStampForPage = (pageIdx: number) => {
     setStampConfigs(prev => {
-      const current = prev[pageIdx] || { x: 100, y: 350, size: 130, enabled: false };
+      const current = getSafeStampConfig(pageIdx);
       return {
         ...prev,
         [pageIdx]: {
@@ -138,7 +183,7 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset, onStart
   // Toggle Signature for a specific page
   const toggleSignatureForPage = (pageIdx: number) => {
     setSignatureConfigs(prev => {
-      const current = prev[pageIdx] || { x: 100, y: 200, size: 130, enabled: false };
+      const current = getSafeSignatureConfig(pageIdx);
       return {
         ...prev,
         [pageIdx]: {
@@ -154,7 +199,7 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset, onStart
     setStampConfigs(prev => {
       const updated = { ...prev };
       for (let i = 0; i < totalPages; i++) {
-        const existing = updated[i] || { x: 100, y: 350, size: 130, enabled: false };
+        const existing = getSafeStampConfig(i);
         let shouldEnable = false;
         if (preset === 'all') shouldEnable = true;
         else if (preset === 'first') shouldEnable = (i === 0);
@@ -173,7 +218,7 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset, onStart
     setSignatureConfigs(prev => {
       const updated = { ...prev };
       for (let i = 0; i < totalPages; i++) {
-        const existing = updated[i] || { x: 100, y: 200, size: 130, enabled: false };
+        const existing = getSafeSignatureConfig(i);
         let shouldEnable = false;
         if (preset === 'all') shouldEnable = true;
         else if (preset === 'first') shouldEnable = (i === 0);
@@ -185,6 +230,79 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset, onStart
       }
       return updated;
     });
+  };
+
+  // Preset location buttons (أسفل اليمين، أسفل الوسط، أسفل اليسار، استعادة الموضع)
+  const setPresetPosition = (item: 'stamp' | 'signature', pos: 'bottom-right' | 'bottom-center' | 'bottom-left' | 'center') => {
+    const { w, h } = getSafeDimensions();
+    const config = item === 'stamp' ? currentStampConfig : currentSignatureConfig;
+    const size = config.size;
+
+    let targetX = config.x;
+    let targetY = config.y;
+
+    if (pos === 'bottom-right') {
+      targetX = 24;
+      targetY = h - size - 28;
+    } else if (pos === 'bottom-center') {
+      targetX = Math.round((w - size) / 2);
+      targetY = h - size - 28;
+    } else if (pos === 'bottom-left') {
+      targetX = w - size - 24;
+      targetY = h - size - 28;
+    } else if (pos === 'center') {
+      targetX = Math.round((w - size) / 2);
+      targetY = Math.round((h - size) / 2);
+    }
+
+    targetX = Math.max(8, Math.min(targetX, w - size - 8));
+    targetY = Math.max(8, Math.min(targetY, h - size - 8));
+
+    if (item === 'stamp') {
+      setStampConfigs(prev => {
+        const updated = { ...prev };
+        if (syncPositions) {
+          for (let i = 0; i < totalPages; i++) {
+            updated[i] = {
+              ...getSafeStampConfig(i),
+              x: targetX,
+              y: targetY,
+              enabled: updated[i]?.enabled ?? true
+            };
+          }
+        } else {
+          updated[currentPageIndex] = {
+            ...currentStampConfig,
+            x: targetX,
+            y: targetY,
+            enabled: true
+          };
+        }
+        return updated;
+      });
+    } else {
+      setSignatureConfigs(prev => {
+        const updated = { ...prev };
+        if (syncPositions) {
+          for (let i = 0; i < totalPages; i++) {
+            updated[i] = {
+              ...getSafeSignatureConfig(i),
+              x: targetX,
+              y: targetY,
+              enabled: updated[i]?.enabled ?? true
+            };
+          }
+        } else {
+          updated[currentPageIndex] = {
+            ...currentSignatureConfig,
+            x: targetX,
+            y: targetY,
+            enabled: true
+          };
+        }
+        return updated;
+      });
+    }
   };
 
   const handleStartDrag = (item: 'stamp' | 'signature', clientX: number, clientY: number, currentTarget: HTMLElement) => {
@@ -223,18 +341,19 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset, onStart
         if (syncPositions) {
           for (let idx = 0; idx < totalPages; idx++) {
             updated[idx] = {
-              ...(updated[idx] || {}),
+              ...(updated[idx] || getSafeStampConfig(idx)),
               x: newX,
               y: newY,
               size: activeConfig.size,
-              enabled: updated[idx]?.enabled ?? (idx === currentPageIndex)
+              enabled: updated[idx]?.enabled ?? true
             };
           }
         } else {
           updated[currentPageIndex] = {
-            ...updated[currentPageIndex],
+            ...getSafeStampConfig(currentPageIndex),
             x: newX,
-            y: newY
+            y: newY,
+            enabled: true
           };
         }
         return updated;
@@ -245,24 +364,25 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset, onStart
         if (syncPositions) {
           for (let idx = 0; idx < totalPages; idx++) {
             updated[idx] = {
-              ...(updated[idx] || {}),
+              ...(updated[idx] || getSafeSignatureConfig(idx)),
               x: newX,
               y: newY,
               size: activeConfig.size,
-              enabled: updated[idx]?.enabled ?? (idx === currentPageIndex)
+              enabled: updated[idx]?.enabled ?? true
             };
           }
         } else {
           updated[currentPageIndex] = {
-            ...updated[currentPageIndex],
+            ...getSafeSignatureConfig(currentPageIndex),
             x: newX,
-            y: newY
+            y: newY,
+            enabled: true
           };
         }
         return updated;
       });
     }
-  }, [draggingItem, dragOffset, currentStampConfig, currentSignatureConfig, syncPositions, totalPages, currentPageIndex]);
+  }, [draggingItem, dragOffset, currentStampConfig, currentSignatureConfig, syncPositions, totalPages, currentPageIndex, getSafeStampConfig, getSafeSignatureConfig]);
 
   const handleMouseMove = (e: React.MouseEvent) => {
     handleMove(e.clientX, e.clientY);
@@ -282,14 +402,16 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset, onStart
       const updated = { ...prev };
       if (syncPositions) {
         for (let idx = 0; idx < totalPages; idx++) {
-          if (updated[idx]) {
-            updated[idx] = { ...updated[idx], size: newSize };
-          }
+          updated[idx] = {
+            ...(updated[idx] || getSafeStampConfig(idx)),
+            size: newSize
+          };
         }
       } else {
-        if (updated[currentPageIndex]) {
-          updated[currentPageIndex] = { ...updated[currentPageIndex], size: newSize };
-        }
+        updated[currentPageIndex] = {
+          ...getSafeStampConfig(currentPageIndex),
+          size: newSize
+        };
       }
       return updated;
     });
@@ -300,17 +422,89 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset, onStart
       const updated = { ...prev };
       if (syncPositions) {
         for (let idx = 0; idx < totalPages; idx++) {
-          if (updated[idx]) {
-            updated[idx] = { ...updated[idx], size: newSize };
-          }
+          updated[idx] = {
+            ...(updated[idx] || getSafeSignatureConfig(idx)),
+            size: newSize
+          };
         }
       } else {
-        if (updated[currentPageIndex]) {
-          updated[currentPageIndex] = { ...updated[currentPageIndex], size: newSize };
-        }
+        updated[currentPageIndex] = {
+          ...getSafeSignatureConfig(currentPageIndex),
+          size: newSize
+        };
       }
       return updated;
     });
+  };
+
+  // Load Saved Asset from User Account directly into Editor
+  const handleUseSavedAssetInEditor = (type: 'stamp' | 'signature') => {
+    if (!currentUser?.savedAssets?.[type]) {
+      showToast('لا يوجد أصل محفوظ لهذا الحساب حالياً');
+      return;
+    }
+    const assetUrl = currentUser.savedAssets[type]!;
+    if (onUpdateDocs) {
+      onUpdateDocs(prev => ({
+        ...prev,
+        [type]: assetUrl
+      }));
+    }
+    // Ensure enabled is true
+    if (type === 'stamp') {
+      applyStampPreset('all');
+      showToast('تم إدراج الختم المحفوظ وتثبيته في الموضع بنجاح ✅');
+    } else {
+      applySignaturePreset('all');
+      showToast('تم إدراج التوقيع المحفوظ وتثبيته في الموضع بنجاح ✅');
+    }
+  };
+
+  // File Upload Helper within Editor
+  const handleFileUploadInEditor = (type: 'stamp' | 'signature', file: File) => {
+    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+    if (isPdf) {
+      const fileReader = new FileReader();
+      fileReader.onload = async function() {
+        try {
+          const typedarray = new Uint8Array(this.result as ArrayBuffer);
+          const pdfjsLib = (window as any).pdfjsLib;
+          if (!pdfjsLib) throw new Error("مكتبة معالجة PDF قيد التحميل");
+          const pdf = await pdfjsLib.getDocument({ data: typedarray }).promise;
+          const page = await pdf.getPage(1);
+          const viewport = page.getViewport({ scale: 2.0 });
+          const canvas = document.createElement('canvas');
+          const context = canvas.getContext('2d');
+          if (context) {
+            canvas.height = viewport.height;
+            canvas.width = viewport.width;
+            await page.render({ canvasContext: context, viewport: viewport }).promise;
+            const dataUrl = canvas.toDataURL('image/png');
+            if (onUpdateDocs) {
+              onUpdateDocs(prev => ({ ...prev, [type]: dataUrl }));
+            }
+            if (type === 'stamp') applyStampPreset('all');
+            else applySignaturePreset('all');
+            showToast(`تم تعيين ${type === 'stamp' ? 'الختم' : 'التوقيع'} بنجاح ✅`);
+          }
+        } catch (e: any) {
+          showToast('حدث خطأ أثناء معالجة الملف: ' + (e?.message || e));
+        }
+      };
+      fileReader.readAsArrayBuffer(file);
+    } else {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        if (e.target?.result && onUpdateDocs) {
+          const dataUrl = e.target.result as string;
+          onUpdateDocs(prev => ({ ...prev, [type]: dataUrl }));
+          if (type === 'stamp') applyStampPreset('all');
+          else applySignaturePreset('all');
+          showToast(`تم تعيين ${type === 'stamp' ? 'الختم' : 'التوقيع'} بنجاح ✅`);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   const handleExport = async () => {
@@ -325,6 +519,8 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset, onStart
       const pagesToProcess = documents.originalPages.length > 0 
         ? documents.originalPages 
         : (documents.original ? [documents.original] : []);
+
+      const { w: containerWidth, h: containerHeight } = getSafeDimensions();
 
       for (let i = 0; i < pagesToProcess.length; i++) {
         if (i > 0) pdf.addPage('a4', 'portrait');
@@ -350,29 +546,27 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset, onStart
           ctx.drawImage(origImg, 0, 0, canvas.width, canvas.height);
 
           // Scale coordinates
-          const containerWidth = containerRef.current?.clientWidth || 400;
-          const containerHeight = containerRef.current?.clientHeight || 565;
           const scaleX = canvas.width / containerWidth;
           const scaleY = canvas.height / containerHeight;
 
-          // 3. Signature (only if enabled on page i)
-          const sigConfig = signatureConfigs[i];
-          if (documents.signature && sigConfig && sigConfig.enabled) {
-            const sigImg = await loadImage(documents.signature);
-            const sigX = sigConfig.x * scaleX;
-            const sigY = sigConfig.y * scaleY;
-            const sigSize = sigConfig.size * scaleX;
-            ctx.drawImage(sigImg, sigX, sigY, sigSize, sigSize);
-          }
-
-          // 4. Stamp (only if enabled on page i)
-          const stampConfig = stampConfigs[i];
-          if (documents.stamp && stampConfig && stampConfig.enabled) {
+          // 3. Stamp (only if enabled on page i)
+          const stampConfig = getSafeStampConfig(i);
+          if (documents.stamp && stampConfig.enabled) {
             const stampImg = await loadImage(documents.stamp);
             const stampX = stampConfig.x * scaleX;
             const stampY = stampConfig.y * scaleY;
             const stampSize = stampConfig.size * scaleX;
             ctx.drawImage(stampImg, stampX, stampY, stampSize, stampSize);
+          }
+
+          // 4. Signature (only if enabled on page i)
+          const sigConfig = getSafeSignatureConfig(i);
+          if (documents.signature && sigConfig.enabled) {
+            const sigImg = await loadImage(documents.signature);
+            const sigX = sigConfig.x * scaleX;
+            const sigY = sigConfig.y * scaleY;
+            const sigSize = sigConfig.size * scaleX;
+            ctx.drawImage(sigImg, sigX, sigY, sigSize, sigSize);
           }
 
           const pageDataUrl = canvas.toDataURL('image/jpeg', 0.95);
@@ -432,28 +626,55 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset, onStart
     URL.revokeObjectURL(url);
   };
 
-  const handleWhatsAppShare = () => {
-    handleDownloadFile();
-    const text = encodeURIComponent('مرحباً، تم توثيق المستند رسمياً عبر منصة وثيق 📄✨. تم حفظ الملف على جهازك ويمكنك إرفاقه مباشرة.');
-    window.open(`https://wa.me/?text=${text}`, '_blank');
-  };
-
   const currentPageOriginal = documents.originalPages[currentPageIndex] || documents.original;
   const currentPageTemplate = getTemplateForPage(currentPageIndex);
 
-  // Count active pages
-  const stampActiveCount = Object.values(stampConfigs).filter(c => c.enabled).length;
-  const signatureActiveCount = Object.values(signatureConfigs).filter(c => c.enabled).length;
+  // Active counts
+  const stampActiveCount = Object.keys(stampConfigs).length > 0 
+    ? Array.from({ length: totalPages }).filter((_, i) => getSafeStampConfig(i).enabled).length 
+    : (documents.stamp ? totalPages : 0);
+
+  const signatureActiveCount = Object.keys(signatureConfigs).length > 0 
+    ? Array.from({ length: totalPages }).filter((_, i) => getSafeSignatureConfig(i).enabled).length 
+    : (documents.signature ? totalPages : 0);
 
   return (
     <div 
-      className="flex flex-col lg:flex-row gap-8 items-start justify-center max-w-5xl mx-auto w-full animate-page-enter text-right"
+      className="flex flex-col lg:flex-row gap-8 items-start justify-center max-w-5xl mx-auto w-full animate-page-enter text-right relative"
       dir="rtl"
       onMouseMove={handleMouseMove}
       onTouchMove={handleTouchMove}
       onMouseUp={handleEndDrag}
       onTouchEnd={handleEndDrag}
     >
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 bg-slate-900/90 text-white px-5 py-2.5 rounded-2xl shadow-xl text-xs font-bold backdrop-blur-md animate-fade-in flex items-center gap-2 border border-slate-700">
+          <Check size={14} className="text-emerald-400" />
+          <span>{toastMessage}</span>
+        </div>
+      )}
+
+      {/* Hidden File Inputs for in-editor upload */}
+      <input 
+        ref={stampFileInputRef} 
+        type="file" 
+        accept="image/png, image/jpeg, application/pdf" 
+        className="hidden" 
+        onChange={(e) => {
+          if (e.target.files?.[0]) handleFileUploadInEditor('stamp', e.target.files[0]);
+        }} 
+      />
+      <input 
+        ref={sigFileInputRef} 
+        type="file" 
+        accept="image/png, image/jpeg, application/pdf" 
+        className="hidden" 
+        onChange={(e) => {
+          if (e.target.files?.[0]) handleFileUploadInEditor('signature', e.target.files[0]);
+        }} 
+      />
+
       {/* Central Canvas View */}
       <div className="flex-1 w-full flex flex-col items-center">
         
@@ -490,8 +711,8 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset, onStart
             <div className="flex items-center gap-1.5 overflow-x-auto pb-1 pt-0.5 justify-center">
               {Array.from({ length: totalPages }).map((_, idx) => {
                 const isCurrent = idx === currentPageIndex;
-                const hasStamp = stampConfigs[idx]?.enabled;
-                const hasSig = signatureConfigs[idx]?.enabled;
+                const hasStamp = getSafeStampConfig(idx).enabled && !!documents.stamp;
+                const hasSig = getSafeSignatureConfig(idx).enabled && !!documents.signature;
                 return (
                   <button
                     key={idx}
@@ -517,7 +738,7 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset, onStart
         {/* The Live Interactive Canvas Paper */}
         <div 
           ref={containerRef}
-          className="relative w-full max-w-[460px] aspect-[210/297] bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-300/80 select-none touch-none transition-all duration-300"
+          className="relative w-full max-w-[460px] aspect-[210/297] min-h-[480px] bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-300/80 select-none touch-none transition-all duration-300"
         >
           {/* Template */}
           {currentPageTemplate && (
@@ -537,7 +758,7 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset, onStart
             />
           )}
 
-          {/* Draggable Stamp (Only if enabled on this page) */}
+          {/* Draggable Stamp (Clearly visible and interactive) */}
           {documents.stamp && currentStampConfig.enabled && (
             <div
               style={{
@@ -548,21 +769,23 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset, onStart
               }}
               onMouseDown={(e) => handleMouseDown('stamp', e)}
               onTouchStart={(e) => handleTouchStart('stamp', e)}
-              className="absolute z-30 cursor-move border-2 border-dashed border-blue-500 hover:border-blue-600 rounded-xl p-1 bg-blue-500/10 hover:bg-blue-500/20 shadow-lg active:scale-95 flex items-center justify-center group canvas-draggable select-none"
+              className={`absolute cursor-move border-2 border-dashed border-blue-500 hover:border-blue-600 rounded-xl p-1 bg-blue-500/10 hover:bg-blue-500/20 shadow-lg active:scale-95 flex items-center justify-center group select-none transition-[border-color,background-color] ${
+                draggingItem === 'stamp' ? 'z-40 ring-4 ring-blue-500/30' : 'z-30'
+              }`}
             >
               <img 
                 src={documents.stamp} 
                 alt="Stamp" 
-                className="w-full h-full object-contain pointer-events-none" 
+                className="w-full h-full object-contain pointer-events-none select-none drop-shadow-sm" 
               />
-              <div className="absolute -top-2 -right-2 bg-blue-600 text-white p-1 rounded-full text-[9px] font-black shadow-sm flex items-center gap-0.5">
+              <div className="absolute -top-2.5 -right-2.5 bg-blue-600 text-white px-1.5 py-0.5 rounded-full text-[9px] font-black shadow-md flex items-center gap-1 select-none pointer-events-none">
                 <Stamp size={10} />
                 <span>ختم</span>
               </div>
             </div>
           )}
 
-          {/* Draggable Signature (Only if enabled on this page) */}
+          {/* Draggable Signature (Clearly visible and interactive) */}
           {documents.signature && currentSignatureConfig.enabled && (
             <div
               style={{
@@ -573,14 +796,16 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset, onStart
               }}
               onMouseDown={(e) => handleMouseDown('signature', e)}
               onTouchStart={(e) => handleTouchStart('signature', e)}
-              className="absolute z-30 cursor-move border-2 border-dashed border-indigo-500 hover:border-indigo-600 rounded-xl p-1 bg-indigo-500/10 hover:bg-indigo-500/20 shadow-lg active:scale-95 flex items-center justify-center group canvas-draggable select-none"
+              className={`absolute cursor-move border-2 border-dashed border-indigo-500 hover:border-indigo-600 rounded-xl p-1 bg-indigo-500/10 hover:bg-indigo-500/20 shadow-lg active:scale-95 flex items-center justify-center group select-none transition-[border-color,background-color] ${
+                draggingItem === 'signature' ? 'z-40 ring-4 ring-indigo-500/30' : 'z-30'
+              }`}
             >
               <img 
                 src={documents.signature} 
                 alt="Signature" 
-                className="w-full h-full object-contain pointer-events-none" 
+                className="w-full h-full object-contain pointer-events-none select-none drop-shadow-sm" 
               />
-              <div className="absolute -top-2 -right-2 bg-indigo-600 text-white p-1 rounded-full text-[9px] font-black shadow-sm flex items-center gap-0.5">
+              <div className="absolute -top-2.5 -right-2.5 bg-indigo-600 text-white px-1.5 py-0.5 rounded-full text-[9px] font-black shadow-md flex items-center gap-1 select-none pointer-events-none">
                 <PenTool size={10} />
                 <span>توقيع</span>
               </div>
@@ -592,8 +817,8 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset, onStart
       {/* Control Cards Sidebar */}
       <div className="w-full lg:w-96 flex flex-col gap-4">
 
-        {/* 1. SELECTION OF PAGES FOR STAMP & SIGNATURE (حل مشكلة اختيار الصفحات) */}
-        {documents.stamp && (
+        {/* 1. STAMP MANAGEMENT CARD */}
+        {documents.stamp ? (
           <div className="bg-white border border-slate-200/90 p-5 rounded-3xl shadow-sm flex flex-col gap-3.5 animate-fade-in">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
               <div className="flex items-center gap-2">
@@ -601,16 +826,30 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset, onStart
                   <Stamp size={16} />
                 </div>
                 <div>
-                  <h3 className="text-xs font-black text-slate-900">صفحات الختم</h3>
-                  <p className="text-[10px] text-slate-400">تحديد الصفحات المطلوب ظهور الختم بها</p>
+                  <h3 className="text-xs font-black text-slate-900">الختم الرسمي</h3>
+                  <p className="text-[10px] text-slate-400">تحديد الصفحات والموضع بدقة</p>
                 </div>
               </div>
-              <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 font-mono">
-                {stampActiveCount} من {totalPages}
-              </span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 font-mono">
+                  {stampActiveCount} من {totalPages}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => toggleStampForPage(currentPageIndex)}
+                  title={currentStampConfig.enabled ? "إخفاء الختم من هذه الصفحة" : "إظهار الختم على هذه الصفحة"}
+                  className={`p-1.5 rounded-lg border transition-colors cursor-pointer ${
+                    currentStampConfig.enabled 
+                      ? 'bg-blue-600 text-white border-blue-600' 
+                      : 'bg-slate-100 text-slate-400 border-slate-200 hover:text-slate-600'
+                  }`}
+                >
+                  {currentStampConfig.enabled ? <Eye size={13} /> : <EyeOff size={13} />}
+                </button>
+              </div>
             </div>
 
-            {/* Quick preset buttons */}
+            {/* Quick Presets for Target Pages */}
             <div className="grid grid-cols-3 gap-1.5">
               <button
                 type="button"
@@ -640,7 +879,7 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset, onStart
               <span className="text-[10px] font-bold text-slate-500">اختر الصفحات يدوياً:</span>
               <div className="flex flex-wrap gap-1.5">
                 {Array.from({ length: totalPages }).map((_, idx) => {
-                  const isEnabled = stampConfigs[idx]?.enabled ?? false;
+                  const isEnabled = getSafeStampConfig(idx).enabled;
                   return (
                     <button
                       key={idx}
@@ -657,6 +896,41 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset, onStart
                     </button>
                   );
                 })}
+              </div>
+            </div>
+
+            {/* Quick 1-tap Location Presets */}
+            <div className="pt-2 border-t border-slate-100 flex flex-col gap-1.5">
+              <span className="text-[10px] font-bold text-slate-500">موضع الختم السريع:</span>
+              <div className="grid grid-cols-4 gap-1">
+                <button
+                  type="button"
+                  onClick={() => setPresetPosition('stamp', 'bottom-right')}
+                  className="text-[10px] font-bold py-1 bg-slate-50 hover:bg-blue-50 hover:text-blue-700 rounded-lg border border-slate-200 transition-colors cursor-pointer text-center"
+                >
+                  أسفل اليمين
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPresetPosition('stamp', 'bottom-center')}
+                  className="text-[10px] font-bold py-1 bg-slate-50 hover:bg-blue-50 hover:text-blue-700 rounded-lg border border-slate-200 transition-colors cursor-pointer text-center"
+                >
+                  أسفل الوسط
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPresetPosition('stamp', 'bottom-left')}
+                  className="text-[10px] font-bold py-1 bg-slate-50 hover:bg-blue-50 hover:text-blue-700 rounded-lg border border-slate-200 transition-colors cursor-pointer text-center"
+                >
+                  أسفل اليسار
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPresetPosition('stamp', 'center')}
+                  className="text-[10px] font-bold py-1 bg-slate-50 hover:bg-blue-50 hover:text-blue-700 rounded-lg border border-slate-200 transition-colors cursor-pointer text-center"
+                >
+                  توسيط
+                </button>
               </div>
             </div>
 
@@ -679,11 +953,66 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset, onStart
                 <ZoomIn size={14} className="text-slate-400" />
               </div>
             </div>
+
+            {/* Replace / Remove Stamp actions */}
+            <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => stampFileInputRef.current?.click()}
+                className="text-[11px] text-blue-600 hover:text-blue-800 font-bold flex items-center gap-1 cursor-pointer"
+              >
+                <Upload size={12} />
+                <span>تغيير صورة الختم</span>
+              </button>
+              {onUpdateDocs && (
+                <button
+                  type="button"
+                  onClick={() => onUpdateDocs(prev => ({ ...prev, stamp: null }))}
+                  className="text-[11px] text-rose-500 hover:text-rose-700 font-bold cursor-pointer"
+                >
+                  حذف الختم
+                </button>
+              )}
+            </div>
+          </div>
+        ) : (
+          /* Card if stamp is not uploaded yet */
+          <div className="bg-white border border-dashed border-blue-200 p-5 rounded-3xl shadow-sm flex flex-col gap-3 animate-fade-in">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+                <Stamp size={18} />
+              </div>
+              <div>
+                <h3 className="text-xs font-black text-slate-900">إضافة الختم الرسمي</h3>
+                <p className="text-[10px] text-slate-400">لم يتم اختيار ختم لهذا المستند بعد</p>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-2 pt-1">
+              {currentUser?.savedAssets?.stamp && (
+                <button
+                  type="button"
+                  onClick={() => handleUseSavedAssetInEditor('stamp')}
+                  className="w-full bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold py-2.5 px-3 rounded-xl text-xs flex items-center justify-center gap-2 transition-colors cursor-pointer border border-blue-200"
+                >
+                  <BookmarkCheck size={14} />
+                  <span>استخدام الختم المحفوظ بحسابك</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => stampFileInputRef.current?.click()}
+                className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <Upload size={13} />
+                <span>رفع ختم من جهازك (صورة أو PDF)</span>
+              </button>
+            </div>
           </div>
         )}
 
-        {/* 2. SELECTION OF PAGES FOR SIGNATURE (صفحات التوقيع) */}
-        {documents.signature && (
+        {/* 2. SIGNATURE MANAGEMENT CARD */}
+        {documents.signature ? (
           <div className="bg-white border border-slate-200/90 p-5 rounded-3xl shadow-sm flex flex-col gap-3.5 animate-fade-in">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
               <div className="flex items-center gap-2">
@@ -691,16 +1020,30 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset, onStart
                   <PenTool size={16} />
                 </div>
                 <div>
-                  <h3 className="text-xs font-black text-slate-900">صفحات التوقيع</h3>
-                  <p className="text-[10px] text-slate-400">تحديد الصفحات المطلوب ظهور التوقيع بها</p>
+                  <h3 className="text-xs font-black text-slate-900">التوقيع الرسمي</h3>
+                  <p className="text-[10px] text-slate-400">تحديد الصفحات والموضع بدقة</p>
                 </div>
               </div>
-              <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 font-mono">
-                {signatureActiveCount} من {totalPages}
-              </span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 font-mono">
+                  {signatureActiveCount} من {totalPages}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => toggleSignatureForPage(currentPageIndex)}
+                  title={currentSignatureConfig.enabled ? "إخفاء التوقيع من هذه الصفحة" : "إظهار التوقيع على هذه الصفحة"}
+                  className={`p-1.5 rounded-lg border transition-colors cursor-pointer ${
+                    currentSignatureConfig.enabled 
+                      ? 'bg-indigo-600 text-white border-indigo-600' 
+                      : 'bg-slate-100 text-slate-400 border-slate-200 hover:text-slate-600'
+                  }`}
+                >
+                  {currentSignatureConfig.enabled ? <Eye size={13} /> : <EyeOff size={13} />}
+                </button>
+              </div>
             </div>
 
-            {/* Quick preset buttons */}
+            {/* Quick Presets for Target Pages */}
             <div className="grid grid-cols-3 gap-1.5">
               <button
                 type="button"
@@ -730,7 +1073,7 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset, onStart
               <span className="text-[10px] font-bold text-slate-500">اختر الصفحات يدوياً:</span>
               <div className="flex flex-wrap gap-1.5">
                 {Array.from({ length: totalPages }).map((_, idx) => {
-                  const isEnabled = signatureConfigs[idx]?.enabled ?? false;
+                  const isEnabled = getSafeSignatureConfig(idx).enabled;
                   return (
                     <button
                       key={idx}
@@ -747,6 +1090,41 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset, onStart
                     </button>
                   );
                 })}
+              </div>
+            </div>
+
+            {/* Quick 1-tap Location Presets */}
+            <div className="pt-2 border-t border-slate-100 flex flex-col gap-1.5">
+              <span className="text-[10px] font-bold text-slate-500">موضع التوقيع السريع:</span>
+              <div className="grid grid-cols-4 gap-1">
+                <button
+                  type="button"
+                  onClick={() => setPresetPosition('signature', 'bottom-right')}
+                  className="text-[10px] font-bold py-1 bg-slate-50 hover:bg-indigo-50 hover:text-indigo-700 rounded-lg border border-slate-200 transition-colors cursor-pointer text-center"
+                >
+                  أسفل اليمين
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPresetPosition('signature', 'bottom-center')}
+                  className="text-[10px] font-bold py-1 bg-slate-50 hover:bg-indigo-50 hover:text-indigo-700 rounded-lg border border-slate-200 transition-colors cursor-pointer text-center"
+                >
+                  أسفل الوسط
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPresetPosition('signature', 'bottom-left')}
+                  className="text-[10px] font-bold py-1 bg-slate-50 hover:bg-indigo-50 hover:text-indigo-700 rounded-lg border border-slate-200 transition-colors cursor-pointer text-center"
+                >
+                  أسفل اليسار
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPresetPosition('signature', 'center')}
+                  className="text-[10px] font-bold py-1 bg-slate-50 hover:bg-indigo-50 hover:text-indigo-700 rounded-lg border border-slate-200 transition-colors cursor-pointer text-center"
+                >
+                  توسيط
+                </button>
               </div>
             </div>
 
@@ -767,6 +1145,81 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset, onStart
                   className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
                 />
                 <ZoomIn size={14} className="text-slate-400" />
+              </div>
+            </div>
+
+            {/* Redraw / Remove Signature actions */}
+            <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-3">
+                <button 
+                  type="button" 
+                  onClick={() => setIsDrawingSigModal(true)} 
+                  className="text-[11px] text-indigo-600 hover:text-indigo-800 font-bold flex items-center gap-1 cursor-pointer"
+                >
+                  <PenTool size={12} />
+                  <span>إعادة رسم التوقيع</span>
+                </button>
+                <button 
+                  type="button" 
+                  onClick={() => sigFileInputRef.current?.click()} 
+                  className="text-[11px] text-slate-500 hover:text-slate-800 font-bold flex items-center gap-1 cursor-pointer"
+                >
+                  <Upload size={12} />
+                  <span>رفع صورة</span>
+                </button>
+              </div>
+              {onUpdateDocs && (
+                <button
+                  type="button"
+                  onClick={() => onUpdateDocs(prev => ({ ...prev, signature: null }))}
+                  className="text-[11px] text-rose-500 hover:text-rose-700 font-bold cursor-pointer"
+                >
+                  حذف التوقيع
+                </button>
+              )}
+            </div>
+          </div>
+        ) : (
+          /* Card if signature is not uploaded yet */
+          <div className="bg-white border border-dashed border-indigo-200 p-5 rounded-3xl shadow-sm flex flex-col gap-3 animate-fade-in">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
+                <PenTool size={18} />
+              </div>
+              <div>
+                <h3 className="text-xs font-black text-slate-900">إضافة التوقيع الرسمي</h3>
+                <p className="text-[10px] text-slate-400">لم يتم اختيار توقيع لهذا المستند بعد</p>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-2 pt-1">
+              {currentUser?.savedAssets?.signature && (
+                <button
+                  type="button"
+                  onClick={() => handleUseSavedAssetInEditor('signature')}
+                  className="w-full bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold py-2.5 px-3 rounded-xl text-xs flex items-center justify-center gap-2 transition-colors cursor-pointer border border-indigo-200"
+                >
+                  <BookmarkCheck size={14} />
+                  <span>استخدام التوقيع المحفوظ بحسابك</span>
+                </button>
+              )}
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsDrawingSigModal(true)}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+                >
+                  <PenTool size={13} />
+                  <span>رسم توقيعك ✍️</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => sigFileInputRef.current?.click()}
+                  className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <Upload size={13} />
+                  <span>رفع صورة</span>
+                </button>
               </div>
             </div>
           </div>
@@ -815,7 +1268,7 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset, onStart
                 <span>العودة لتعديل الملفات الحالية</span>
               </button>
 
-              {/* START TOTALLY NEW FILE BUTTON (المطلوب: زر بصفحة التوثيق عشان ابدأ بملف جديد كليا) */}
+              {/* Start completely new file button */}
               <button
                 onClick={() => setShowFreshConfirmModal(true)}
                 className="flex items-center justify-center gap-2 w-full bg-slate-100 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200 border border-transparent text-slate-600 py-3 rounded-2xl font-bold text-xs transition-all cursor-pointer"
@@ -837,7 +1290,16 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset, onStart
                 <span>مشاركة المستند</span>
               </button>
 
-              {/* 2. Start Over Button (keeps current files without deleting them) */}
+              {/* 2. Download File Button */}
+              <button
+                onClick={handleDownloadFile}
+                className="flex items-center justify-center gap-2.5 w-full bg-emerald-600 hover:bg-emerald-700 text-white py-3.5 px-6 rounded-2xl font-black text-xs shadow-md transition-all cursor-pointer"
+              >
+                <Download size={16} />
+                <span>تحميل المستند الموثق (PDF)</span>
+              </button>
+
+              {/* 3. Start Over Button (keeps current files) */}
               <button
                 onClick={onReset}
                 className="flex items-center justify-center gap-2 w-full bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 py-3.5 px-6 rounded-2xl font-bold text-xs transition-all cursor-pointer shadow-xs"
@@ -846,7 +1308,7 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset, onStart
                 <span>البدء من جديد (مع نفس الملفات)</span>
               </button>
 
-              {/* 3. Start Fresh with new files */}
+              {/* 4. Start Fresh with new files */}
               <button
                 onClick={() => setShowFreshConfirmModal(true)}
                 className="flex items-center justify-center gap-2 w-full bg-slate-100 hover:bg-slate-200 text-slate-600 py-3 rounded-2xl font-bold text-xs transition-colors cursor-pointer"
@@ -860,6 +1322,21 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset, onStart
         </div>
 
       </div>
+
+      {/* Signature Pad Modal inside Editor */}
+      {isDrawingSigModal && (
+        <SignaturePad
+          onSave={(dataUrl) => {
+            if (onUpdateDocs) {
+              onUpdateDocs(prev => ({ ...prev, signature: dataUrl }));
+            }
+            applySignaturePreset('all');
+            setIsDrawingSigModal(false);
+            showToast('تم اعتماد التوقيع الحي وإدراجه بنجاح ✅');
+          }}
+          onClose={() => setIsDrawingSigModal(false)}
+        />
+      )}
 
       {/* Confirmation Modal for Starting Completely New File */}
       {showFreshConfirmModal && (
@@ -899,9 +1376,9 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset, onStart
 
               <button
                 onClick={() => setShowFreshConfirmModal(false)}
-                className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-3.5 px-5 rounded-2xl transition-all text-xs cursor-pointer text-center"
+                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-3.5 px-4 rounded-2xl transition-all text-xs cursor-pointer text-center"
               >
-                إلغاء والعودة
+                تراجع
               </button>
             </div>
           </div>
@@ -911,55 +1388,37 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset, onStart
       {/* Share Modal */}
       {showShareModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in" dir="rtl">
-          <div className="bg-white border border-slate-200 rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-2xl flex flex-col gap-6 relative animate-scale-in text-right">
+          <div className="bg-white border border-slate-200 rounded-3xl max-w-sm w-full p-6 shadow-2xl flex flex-col gap-4 relative animate-scale-in text-right">
             <button 
               onClick={() => setShowShareModal(false)}
-              className="absolute top-5 left-5 text-slate-400 hover:text-slate-600 p-2 rounded-full bg-slate-100 hover:bg-slate-200 transition-colors cursor-pointer"
+              className="absolute top-4 left-4 text-slate-400 hover:text-slate-600 p-1.5 rounded-full bg-slate-100 hover:bg-slate-200 transition-colors cursor-pointer"
             >
-              <X size={18} />
+              <X size={16} />
             </button>
-
-            <div className="flex items-center gap-3.5">
-              <div className="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-200 text-blue-600 flex items-center justify-center shrink-0">
-                <Share2 size={24} />
+            
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                <Share2 size={20} />
               </div>
-              <div>
-                <h3 className="text-lg font-black text-slate-900">مشاركة المستند الموثق</h3>
-                <p className="text-xs text-slate-500 mt-0.5">الملف جاهز للإرسال المباشر أو التحميل الفوري</p>
-              </div>
+              <h3 className="text-sm font-black text-slate-900">مشاركة المستند الموثق</h3>
             </div>
 
-            <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-2 pt-2">
               <button
-                onClick={handleWhatsAppShare}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-3.5 px-4 rounded-2xl transition-all shadow-md shadow-blue-600/20 flex items-center justify-center gap-3 cursor-pointer text-xs"
+                onClick={() => {
+                  handleDownloadFile();
+                  setShowShareModal(false);
+                }}
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-xl text-xs flex items-center justify-center gap-2 transition-colors cursor-pointer shadow-md"
               >
-                <MessageCircle size={18} />
-                <span>إرسال ومشاركة عبر واتساب 📲</span>
-              </button>
-
-              <button
-                onClick={handleDownloadFile}
-                className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-3.5 px-4 rounded-2xl transition-all shadow-md flex items-center justify-center gap-3 cursor-pointer text-xs"
-              >
-                <Download size={18} />
-                <span>حفظ نسخة PDF على الجهاز 📥</span>
-              </button>
-            </div>
-
-            <div className="text-center pt-2 border-t border-slate-100">
-              <button
-                onClick={() => setShowShareModal(false)}
-                className="text-xs font-bold text-slate-500 hover:text-slate-800 py-1 cursor-pointer"
-              >
-                إغلاق النافذة
+                <Download size={14} />
+                <span>تحميل وحفظ في الجهاز</span>
               </button>
             </div>
           </div>
         </div>
       )}
 
-      <canvas ref={canvasRef} className="hidden" />
     </div>
   );
 };

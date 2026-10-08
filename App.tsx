@@ -24,7 +24,8 @@ import {
   canUserProcessFile, 
   saveUserAsset, 
   getUserAsset,
-  fetchUserFromFirestoreByEmail 
+  fetchUserFromFirestoreByEmail,
+  subscribeToUserAssets 
 } from './authService';
 
 const App: React.FC = () => {
@@ -86,6 +87,21 @@ const App: React.FC = () => {
     }, 5000);
     return () => clearInterval(interval);
   }, []);
+
+  // Real-time Firestore sync: updates assets across devices instantly
+  useEffect(() => {
+    if (!currentUser?.email) return;
+    const unsubscribe = subscribeToUserAssets(currentUser.email, (assets) => {
+      setUser(prev => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          savedAssets: assets
+        };
+      });
+    });
+    return () => unsubscribe();
+  }, [currentUser?.email]);
 
   // PDF.js Page Extraction
   const loadPdfPages = async (file: File): Promise<string[]> => {
@@ -267,9 +283,13 @@ const App: React.FC = () => {
       showToast(`يرجى رفع ${type === 'template' ? 'الورقة الرسمية' : type === 'stamp' ? 'الختم' : 'التوقيع'} أولاً لحفظه`, 'info');
       return;
     }
-    const updated = await saveUserAsset(type, currentAsset, currentUser);
-    setUser(updated);
-    showToast(`تم حفظ ${type === 'template' ? 'الورقة الرسمية' : type === 'stamp' ? 'الختم' : 'التوقيع'} في السيرفر بنجاح ✅`);
+    try {
+      const updated = await saveUserAsset(type, currentAsset, currentUser);
+      setUser(updated);
+      showToast(`تم حفظ ${type === 'template' ? 'الورقة الرسمية' : type === 'stamp' ? 'الختم' : 'التوقيع'} في Firebase وربطه بحسابك بنجاح ✅`);
+    } catch (e: any) {
+      showToast('خطأ أثناء الحفظ في السيرفر: ' + (e?.message || e), 'error');
+    }
   };
 
   const handleProceedToEditor = () => {
@@ -278,6 +298,25 @@ const App: React.FC = () => {
       showToast(check.reason || 'يرجى تسجيل الدخول أولاً', 'error');
       return;
     }
+
+    // Auto-populate saved assets from user account if not explicitly set
+    setDocs(prev => {
+      const next = { ...prev };
+      if (!next.stamp && currentUser?.savedAssets?.stamp) {
+        next.stamp = currentUser.savedAssets.stamp;
+      }
+      if (!next.signature && currentUser?.savedAssets?.signature) {
+        next.signature = currentUser.savedAssets.signature;
+      }
+      if (!next.template && currentUser?.savedAssets?.template) {
+        next.template = currentUser.savedAssets.template;
+        if (!next.templatePages || next.templatePages.length === 0) {
+          next.templatePages = [currentUser.savedAssets.template];
+        }
+      }
+      return next;
+    });
+
     setStep(Step.EDITOR);
   };
 
@@ -607,6 +646,8 @@ const App: React.FC = () => {
             documents={docs} 
             onReset={handleStartOver}
             onStartFresh={handleStartFresh}
+            currentUser={currentUser}
+            onUpdateDocs={setDocs}
           />
         )}
 

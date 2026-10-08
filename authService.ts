@@ -23,8 +23,8 @@ export const getDocId = (email: string) => {
 };
 
 /**
- * Optimizes large base64 image data URLs so they never exceed Firestore's 1MB document limit.
- * Keeps stamps and signatures crisp with transparent PNG, and compresses templates to high-res JPEG.
+ * Optimizes base64 data URLs so they never exceed Firestore's 1MB limit (aims < 700KB).
+ * Stamps and signatures retain transparency; templates retain high crispness.
  */
 export const optimizeAssetDataUrl = async (
   dataUrl: string, 
@@ -32,8 +32,8 @@ export const optimizeAssetDataUrl = async (
 ): Promise<string> => {
   if (!dataUrl) return dataUrl;
   
-  // If already small (< 350KB), no need to compress
-  if (dataUrl.length < 350 * 1024) {
+  // If already under 250KB, no downscaling needed
+  if (dataUrl.length < 250 * 1024) {
     return dataUrl;
   }
 
@@ -42,44 +42,54 @@ export const optimizeAssetDataUrl = async (
     img.crossOrigin = 'anonymous';
     img.onload = () => {
       try {
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          resolve(dataUrl);
-          return;
-        }
+        let maxDim = type === 'template' ? 1600 : 900;
+        let quality = 0.88;
 
-        const maxDim = type === 'template' ? 1600 : 900;
-        let width = img.width;
-        let height = img.height;
+        const renderCanvas = (targetMax: number, targetQ: number): string => {
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d');
+          if (!ctx) return dataUrl;
 
-        if (width > maxDim || height > maxDim) {
-          if (width > height) {
-            height = Math.round((height * maxDim) / width);
-            width = maxDim;
-          } else {
-            width = Math.round((width * maxDim) / height);
-            height = maxDim;
+          let width = img.width;
+          let height = img.height;
+
+          if (width > targetMax || height > targetMax) {
+            if (width > height) {
+              height = Math.round((height * targetMax) / width);
+              width = targetMax;
+            } else {
+              width = Math.round((width * targetMax) / height);
+              height = targetMax;
+            }
           }
+
+          canvas.width = width;
+          canvas.height = height;
+
+          if (type === 'template') {
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, width, height);
+            ctx.drawImage(img, 0, 0, width, height);
+            return canvas.toDataURL('image/jpeg', targetQ);
+          } else {
+            ctx.clearRect(0, 0, width, height);
+            ctx.drawImage(img, 0, 0, width, height);
+            return canvas.toDataURL('image/png');
+          }
+        };
+
+        let result = renderCanvas(maxDim, quality);
+
+        // Progressive reduction if still exceeds 700KB (Firestore limit safety)
+        let attempts = 0;
+        while (result.length > 700 * 1024 && attempts < 4) {
+          attempts++;
+          maxDim = Math.round(maxDim * 0.8);
+          quality = Math.max(0.65, quality - 0.08);
+          result = renderCanvas(maxDim, quality);
         }
 
-        canvas.width = width;
-        canvas.height = height;
-
-        if (type === 'template') {
-          // Fill white for template background
-          ctx.fillStyle = '#ffffff';
-          ctx.fillRect(0, 0, width, height);
-          ctx.drawImage(img, 0, 0, width, height);
-          const compressed = canvas.toDataURL('image/jpeg', 0.88);
-          resolve(compressed);
-        } else {
-          // Preserve transparency for stamps and signatures
-          ctx.clearRect(0, 0, width, height);
-          ctx.drawImage(img, 0, 0, width, height);
-          const compressed = canvas.toDataURL('image/png');
-          resolve(compressed);
-        }
+        resolve(result);
       } catch (e) {
         console.warn('Asset optimization fallback:', e);
         resolve(dataUrl);
@@ -95,7 +105,7 @@ export const getStoredUsers = (): User[] => {
     const raw = localStorage.getItem(STORAGE_KEY_USERS);
     let users: User[] = raw ? JSON.parse(raw) : [];
     
-    // Ensure admin exists
+    // Ensure admin default exists
     const adminExists = users.some(u => u.email.toLowerCase() === ADMIN_EMAIL.toLowerCase());
     if (!adminExists) {
       const initialAdmin: User = {
@@ -197,6 +207,39 @@ export const fetchUserAssetsFromFirestore = async (email: string): Promise<Saved
 };
 
 /**
+ * Real-time listener for user assets from Cloud Firestore.
+ * Automatically synchronizes changes across all devices and tabs in real time.
+ */
+export const subscribeToUserAssets = (
+  email: string,
+  onUpdate: (assets: SavedAssets) => void
+): (() => void) => {
+  if (!db || !email) return () => {};
+  const docId = getDocId(email);
+
+  try {
+    const assetsColRef = collection(db, 'users', docId, 'assets');
+    const unsubscribe = onSnapshot(assetsColRef, (snapshot) => {
+      const assets: SavedAssets = { template: null, stamp: null, signature: null };
+      snapshot.forEach((docSnap) => {
+        const type = docSnap.id as 'template' | 'stamp' | 'signature';
+        const data = docSnap.data();
+        if (['template', 'stamp', 'signature'].includes(type) && data?.data) {
+          assets[type] = data.data;
+        }
+      });
+      onUpdate(assets);
+    }, (err) => {
+      console.warn('Realtime assets listener warning:', err);
+    });
+    return unsubscribe;
+  } catch (e) {
+    console.warn('Subscribe error:', e);
+    return () => {};
+  }
+};
+
+/**
  * Firestore Sync: Write user to Cloud Firestore without ever wiping existing assets.
  */
 export const syncUserToFirestore = async (user: User) => {
@@ -204,16 +247,6 @@ export const syncUserToFirestore = async (user: User) => {
     if (!db || !user.email) return;
     const docId = getDocId(user.email);
     const userRef = doc(db, 'users', docId);
-
-    // Fetch existing document to guarantee we NEVER overwrite saved assets with null accidentally
-    const existingSnap = await getDoc(userRef);
-    const existingData = existingSnap.exists() ? existingSnap.data() : null;
-
-    const mergedAssets: SavedAssets = {
-      template: user.savedAssets?.template || existingData?.savedAssets?.template || null,
-      stamp: user.savedAssets?.stamp || existingData?.savedAssets?.stamp || null,
-      signature: user.savedAssets?.signature || existingData?.savedAssets?.signature || null,
-    };
 
     const cleanUser: any = {
       id: user.id || 'usr_' + docId,
@@ -227,8 +260,7 @@ export const syncUserToFirestore = async (user: User) => {
       dob: user.dob || '',
       createdAt: user.createdAt || new Date().toISOString(),
       lastLoginAt: user.lastLoginAt || new Date().toISOString(),
-      theme: user.theme || 'default-light',
-      savedAssets: mergedAssets
+      theme: user.theme || 'default-light'
     };
 
     await setDoc(userRef, cleanUser, { merge: true });
@@ -239,7 +271,7 @@ export const syncUserToFirestore = async (user: User) => {
 
 /**
  * Permanently saves or deletes an asset in Cloud Firestore bound to the user's account.
- * Stores in both subcollection (/users/{docId}/assets/{type}) and user profile doc.
+ * Stores in dedicated subcollection (/users/{docId}/assets/{type}) for full reliability.
  */
 export const saveUserAsset = async (
   type: 'template' | 'stamp' | 'signature',
@@ -263,43 +295,44 @@ export const saveUserAsset = async (
     savedAssets: updatedSavedAssets
   };
 
-  // Update local session
+  // Update local session immediately
   setCurrentUser(updatedUser);
 
   // Cloud Firestore Persistence
   if (db && user.email) {
-    try {
-      const assetDocRef = doc(db, 'users', docId, 'assets', type);
-      const userDocRef = doc(db, 'users', docId);
+    const assetDocRef = doc(db, 'users', docId, 'assets', type);
+    const userDocRef = doc(db, 'users', docId);
 
-      if (processedDataUrl) {
-        // 1. Write to dedicated asset document in subcollection
-        await setDoc(assetDocRef, {
-          userId: user.id,
-          userEmail: user.email.toLowerCase(),
-          type,
-          data: processedDataUrl,
+    if (processedDataUrl) {
+      // 1. Write to dedicated asset document in subcollection
+      await setDoc(assetDocRef, {
+        userId: user.id,
+        userEmail: user.email.toLowerCase(),
+        type,
+        data: processedDataUrl,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+
+      // 2. Also update user document metadata
+      try {
+        await setDoc(userDocRef, {
+          updatedAt: new Date().toISOString(),
+          lastActiveAt: new Date().toISOString(),
+          hasSavedAssets: true
+        }, { merge: true });
+      } catch (err) {
+        console.warn('User doc update warning:', err);
+      }
+    } else {
+      // Explicit deletion requested by user
+      await deleteDoc(assetDocRef);
+      try {
+        await setDoc(userDocRef, {
           updatedAt: new Date().toISOString()
         }, { merge: true });
-
-        // 2. Also update user document map
-        await setDoc(userDocRef, {
-          savedAssets: {
-            [type]: processedDataUrl
-          }
-        }, { merge: true });
-      } else {
-        // Explicit deletion requested by user
-        await deleteDoc(assetDocRef);
-        await setDoc(userDocRef, {
-          savedAssets: {
-            [type]: null
-          }
-        }, { merge: true });
+      } catch (err) {
+        console.warn('User doc delete note warning:', err);
       }
-    } catch (err) {
-      console.error('Firestore Asset Save Error:', err);
-      throw err;
     }
   }
 
@@ -324,19 +357,19 @@ export const fetchUserFromFirestoreByEmail = async (email: string): Promise<User
   try {
     const userDocRef = doc(db, 'users', docId);
     const snap = await getDoc(userDocRef);
+    const assets = await fetchUserAssetsFromFirestore(email);
 
     if (snap.exists()) {
       const data = snap.data();
-      const assets = await fetchUserAssetsFromFirestore(email);
 
       const user: User = {
         id: data.id || snap.id,
-        email: data.email,
-        name: data.name || data.email.split('@')[0],
+        email: data.email || email.toLowerCase(),
+        name: data.name || email.split('@')[0],
         phone: data.phone || '',
         dob: data.dob || '',
         avatar: data.avatar || '',
-        role: data.email.toLowerCase() === ADMIN_EMAIL.toLowerCase() ? 'admin' : (data.role || 'user'),
+        role: email.toLowerCase() === ADMIN_EMAIL.toLowerCase() ? 'admin' : (data.role || 'user'),
         status: data.status === 'suspended' ? 'suspended' : 'active',
         authProvider: data.authProvider || 'google',
         createdAt: data.createdAt || new Date().toISOString(),
@@ -345,13 +378,32 @@ export const fetchUserFromFirestoreByEmail = async (email: string): Promise<User
         savedAssets: assets
       };
 
-      // Update local storage
+      // Update local storage cache
       const all = getStoredUsers();
       const idx = all.findIndex(u => u.email.toLowerCase() === email.toLowerCase());
       if (idx >= 0) all[idx] = user;
       else all.push(user);
       saveStoredUsers(all);
 
+      return user;
+    } else if (assets.template || assets.stamp || assets.signature) {
+      // User doc didn't exist but assets exist in Firestore subcollection
+      const user: User = {
+        id: 'usr_' + docId,
+        email: email.toLowerCase(),
+        name: email.split('@')[0],
+        phone: '',
+        dob: '',
+        avatar: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(email)}`,
+        role: email.toLowerCase() === ADMIN_EMAIL.toLowerCase() ? 'admin' : 'user',
+        status: 'active',
+        authProvider: 'google',
+        createdAt: new Date().toISOString(),
+        lastLoginAt: new Date().toISOString(),
+        theme: 'default-light',
+        savedAssets: assets
+      };
+      await syncUserToFirestore(user);
       return user;
     }
   } catch (err) {
@@ -471,21 +523,21 @@ export const updateUserInDb = (user: User) => {
 };
 
 /**
- * Cloud-authoritative Google login.
- * ALWAYS fetches existing cloud profile and assets from Firestore first,
- * preventing any loss of assets when switching devices or browsers!
+ * Universal login function for ALL users (Google or Email).
+ * ALWAYS checks Cloud Firestore first to pull existing profile and assets across devices!
  */
-export const loginWithGoogle = async (googleProfile: {
+export const loginWithEmailOrGoogle = async (profile: {
   email: string;
-  name: string;
+  name?: string;
   avatar?: string;
+  authProvider?: 'google' | 'email';
   sub?: string;
 }): Promise<{ success: boolean; user?: User; message: string }> => {
-  const cleanEmail = googleProfile.email.trim().toLowerCase();
+  const cleanEmail = profile.email.trim().toLowerCase();
   const isAdminEmail = cleanEmail === ADMIN_EMAIL.toLowerCase();
   const docId = getDocId(cleanEmail);
 
-  let cleanName = (googleProfile.name || cleanEmail.split('@')[0]).replace('(المدير)', '').trim();
+  let cleanName = (profile.name || cleanEmail.split('@')[0]).replace('(المدير)', '').trim();
 
   // 1. FIRST: Check Cloud Firestore for existing user and assets (Cross-Device Guarantee)
   let cloudUser: User | null = null;
@@ -494,19 +546,20 @@ export const loginWithGoogle = async (googleProfile: {
   if (db) {
     try {
       const snap = await getDoc(doc(db, 'users', docId));
+      cloudAssets = await fetchUserAssetsFromFirestore(cleanEmail);
+
       if (snap.exists()) {
         const d = snap.data();
-        cloudAssets = await fetchUserAssetsFromFirestore(cleanEmail);
         cloudUser = {
           id: d.id || snap.id,
           email: cleanEmail,
           name: cleanName || d.name || cleanEmail.split('@')[0],
           phone: d.phone || '',
           dob: d.dob || '',
-          avatar: googleProfile.avatar || d.avatar || '',
+          avatar: profile.avatar || d.avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(cleanName)}`,
           role: isAdminEmail ? 'admin' : (d.role || 'user'),
           status: d.status === 'suspended' ? 'suspended' : 'active',
-          authProvider: 'google',
+          authProvider: profile.authProvider || d.authProvider || 'google',
           createdAt: d.createdAt || new Date().toISOString(),
           lastLoginAt: new Date().toISOString(),
           theme: d.theme || 'default-light',
@@ -527,7 +580,16 @@ export const loginWithGoogle = async (googleProfile: {
       };
     }
 
-    // Save to local storage cache on this device
+    // Update login timestamp in Firestore
+    try {
+      if (db) {
+        await setDoc(doc(db, 'users', docId), { lastLoginAt: new Date().toISOString() }, { merge: true });
+      }
+    } catch (e) {
+      console.warn(e);
+    }
+
+    // Save to local cache on this device
     updateUserInDb(cloudUser);
     setCurrentUser(cloudUser);
     return { 
@@ -549,39 +611,57 @@ export const loginWithGoogle = async (googleProfile: {
       };
     }
     if (cleanName) localUser.name = cleanName;
-    if (googleProfile.avatar) localUser.avatar = googleProfile.avatar;
+    if (profile.avatar) localUser.avatar = profile.avatar;
     if (isAdminEmail) {
       localUser.role = 'admin';
       localUser.status = 'active';
     }
-    localUser.authProvider = 'google';
     localUser.lastLoginAt = new Date().toISOString();
+    localUser.savedAssets = {
+      template: localUser.savedAssets?.template || cloudAssets.template,
+      stamp: localUser.savedAssets?.stamp || cloudAssets.stamp,
+      signature: localUser.savedAssets?.signature || cloudAssets.signature
+    };
 
     updateUserInDb(localUser);
     setCurrentUser(localUser);
     return { success: true, user: localUser, message: `مرحباً بعودتك ${localUser.name}` };
   }
 
-  // 4. Brand New User Registration
+  // 4. Brand New User Registration across all devices
   const newUser: User = {
-    id: 'usr_g_' + Math.random().toString(36).substring(2, 10),
+    id: 'usr_' + docId,
     email: cleanEmail,
-    name: cleanName,
-    avatar: googleProfile.avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(cleanName || 'User')}`,
+    name: cleanName || cleanEmail.split('@')[0],
+    avatar: profile.avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(cleanName || 'User')}`,
     dob: '',
     phone: '',
-    authProvider: 'google',
+    authProvider: profile.authProvider || 'google',
     role: isAdminEmail ? 'admin' : 'user',
     status: 'active',
     createdAt: new Date().toISOString(),
     lastLoginAt: new Date().toISOString(),
     theme: 'default-light',
-    savedAssets: { template: null, stamp: null, signature: null }
+    savedAssets: cloudAssets
   };
 
+  // Sync to Firestore immediately so user doc exists in the cloud
+  await syncUserToFirestore(newUser);
   updateUserInDb(newUser);
   setCurrentUser(newUser);
   return { success: true, user: newUser, message: `تم تسجيل الدخول بنجاح! مرحباً ${newUser.name}` };
+};
+
+export const loginWithGoogle = (googleProfile: {
+  email: string;
+  name: string;
+  avatar?: string;
+  sub?: string;
+}) => {
+  return loginWithEmailOrGoogle({
+    ...googleProfile,
+    authProvider: 'google'
+  });
 };
 
 export const deleteUserByAdmin = async (userId: string): Promise<boolean> => {

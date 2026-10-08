@@ -1,9 +1,20 @@
 import React, { useState } from 'react';
-import { FileText, ArrowLeft, AlertCircle, CheckCircle2, Copy, Check, ShieldCheck, User as UserIcon } from 'lucide-react';
+import { 
+  FileText, 
+  ArrowLeft, 
+  AlertCircle, 
+  CheckCircle2, 
+  Copy, 
+  Check, 
+  User as UserIcon, 
+  Mail, 
+  Sparkles,
+  ArrowRight
+} from 'lucide-react';
 import { signInWithPopup } from 'firebase/auth';
 import { auth, googleProvider } from '../firebase';
 import { User } from '../types';
-import { loginWithGoogle, ADMIN_EMAIL } from '../authService';
+import { loginWithGoogle, loginWithEmailOrGoogle, ADMIN_EMAIL } from '../authService';
 
 interface AuthFlowProps {
   onSuccess: (user: User) => void;
@@ -16,6 +27,8 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({ onSuccess, onCancel }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [unauthorizedDomain, setUnauthorizedDomain] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [emailInput, setEmailInput] = useState('');
+  const [nameInput, setNameInput] = useState('');
 
   const currentDomain = typeof window !== 'undefined' ? window.location.hostname : '';
 
@@ -52,7 +65,7 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({ onSuccess, onCancel }) => {
       const firebaseUser = result.user;
 
       if (firebaseUser && firebaseUser.email) {
-        completeUserLogin(
+        await completeUserLogin(
           firebaseUser.email,
           firebaseUser.displayName || firebaseUser.email.split('@')[0],
           firebaseUser.photoURL || undefined,
@@ -74,16 +87,46 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({ onSuccess, onCancel }) => {
         setUnauthorizedDomain(currentDomain);
         setError('النطاق الحالي قيد الإضافة في قائمة النطاقات المعتمدة بـ Firebase.');
       } else if (err?.code === 'auth/popup-blocked') {
-        setError('تم حظر النافذة المنبثقة بواسطة المتصفح، يرجى السماح بالنوافذ المنبثقة');
+        setError('تم حظر النافذة المنبثقة بواسطة المتصفح، يمكنك الدخول المباشر بالبريد أدناه');
       } else if (err?.code === 'auth/network-request-failed') {
-        setError('تعذر الاتصال بخوادم Google، يرجى التحقق من اتصال الإنترنت');
+        setError('تعذر الاتصال بخوادم Google، يرجى استخدام الدخول بالبريد الإلكتروني');
       } else {
         setError(err?.message || 'حدث خطأ أثناء الاتصال بحساب Google');
       }
     }
   };
 
-  const handleQuickContinue = () => {
+  const handleEmailSignIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!emailInput.trim() || !emailInput.includes('@')) {
+      setError('يرجى إدخال بريد إلكتروني صحيح');
+      return;
+    }
+    setIsLoading(true);
+    setError('');
+    setSuccessMsg('');
+
+    try {
+      const res = await loginWithEmailOrGoogle({
+        email: emailInput.trim(),
+        name: nameInput.trim() || undefined,
+        authProvider: 'email'
+      });
+      setIsLoading(false);
+
+      if (res.success && res.user) {
+        setSuccessMsg(res.message);
+        setTimeout(() => onSuccess(res.user!), 300);
+      } else {
+        setError(res.message || 'تعذر تسجيل الدخول');
+      }
+    } catch (err: any) {
+      setIsLoading(false);
+      setError('خطأ أثناء تسجيل الدخول: ' + (err?.message || err));
+    }
+  };
+
+  const handleQuickContinueAdmin = () => {
     completeUserLogin(
       ADMIN_EMAIL,
       'محمد',
@@ -120,13 +163,16 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({ onSuccess, onCancel }) => {
       <div className="relative z-10 w-full max-w-md animate-scale-in bg-white border border-slate-200/90 rounded-3xl p-7 sm:p-9 shadow-xl my-8">
         
         {/* Header */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-blue-50 text-blue-600 mb-4 border border-blue-100 shadow-sm">
+        <div className="text-center mb-6">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-blue-50 text-blue-600 mb-3 border border-blue-100 shadow-sm">
             <FileText size={32} className="stroke-[2.5]" />
           </div>
-          <h1 className="text-2xl font-black text-slate-900 mb-1.5">
+          <h1 className="text-2xl font-black text-slate-900 mb-1">
             تسجيل الدخول
           </h1>
+          <p className="text-xs text-slate-500 font-medium">
+            ترتبط أصولك المحفوظة (أختام وتواقيع) بسحابة Firebase بحسابك في كل جلسة
+          </p>
         </div>
 
         {/* Error / Success Messages */}
@@ -153,10 +199,10 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({ onSuccess, onCancel }) => {
                 </div>
 
                 <div className="pt-2 border-t border-slate-100 flex flex-col gap-1.5">
-                  <span className="text-slate-500 text-[11px]">أو يمكنك المتابعة المباشرة:</span>
+                  <span className="text-slate-500 text-[11px]">أو الدخول المباشر كمدير النظام:</span>
                   <button
                     type="button"
-                    onClick={handleQuickContinue}
+                    onClick={handleQuickContinueAdmin}
                     className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-2.5 px-3 rounded-xl text-xs transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer"
                   >
                     <UserIcon size={14} />
@@ -176,12 +222,12 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({ onSuccess, onCancel }) => {
         )}
 
         {/* Real Google Sign-in Button */}
-        <div className="my-2">
+        <div className="mb-4">
           <button
             type="button"
             onClick={handleGoogleSignIn}
             disabled={isLoading}
-            className="w-full bg-white hover:bg-slate-50 text-slate-800 border-2 border-slate-200 hover:border-blue-500 font-black py-4 px-4 rounded-2xl flex items-center justify-center gap-3 shadow-sm hover:shadow-md transition-all hover:scale-[1.01] active:scale-[0.98] cursor-pointer"
+            className="w-full bg-white hover:bg-slate-50 text-slate-800 border-2 border-slate-200 hover:border-blue-500 font-black py-3.5 px-4 rounded-2xl flex items-center justify-center gap-3 shadow-xs hover:shadow-sm transition-all hover:scale-[1.01] active:scale-[0.98] cursor-pointer"
           >
             {isLoading ? (
               <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
@@ -206,10 +252,61 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({ onSuccess, onCancel }) => {
               </svg>
             )}
             <span className="text-sm font-black">
-              {isLoading ? 'جاري فتح نافذة حسابات Google...' : 'المتابعة باستخدام حساب Google'}
+              {isLoading ? 'جاري التحقق...' : 'المتابعة بحساب Google'}
             </span>
           </button>
         </div>
+
+        {/* Elegant Divider */}
+        <div className="relative flex items-center justify-center my-4">
+          <div className="border-t border-slate-200 w-full" />
+          <span className="bg-white px-3 text-[11px] font-bold text-slate-400 absolute">
+            أو الدخول بالبريد الإلكتروني
+          </span>
+        </div>
+
+        {/* Email Direct Login Form for any user */}
+        <form onSubmit={handleEmailSignIn} className="flex flex-col gap-3 mt-3">
+          <div>
+            <label className="block text-[11px] font-bold text-slate-700 mb-1">
+              البريد الإلكتروني
+            </label>
+            <div className="relative">
+              <input
+                type="email"
+                value={emailInput}
+                onChange={(e) => setEmailInput(e.target.value)}
+                placeholder="example@gmail.com"
+                required
+                className="w-full bg-slate-50 border border-slate-200 focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-100 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-900 transition-all outline-hidden text-left"
+                dir="ltr"
+              />
+              <Mail size={15} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-bold text-slate-700 mb-1">
+              الاسم (اختياري)
+            </label>
+            <input
+              type="text"
+              value={nameInput}
+              onChange={(e) => setNameInput(e.target.value)}
+              placeholder="اسمك أو اسم المؤسسة"
+              className="w-full bg-slate-50 border border-slate-200 focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-100 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-900 transition-all outline-hidden text-right"
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={isLoading || !emailInput.trim()}
+            className="w-full mt-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-40 text-white font-black py-3 px-4 rounded-xl text-xs transition-all shadow-md shadow-blue-600/20 flex items-center justify-center gap-2 cursor-pointer hover:scale-[1.01] active:scale-[0.98]"
+          >
+            <span>دخول الحساب وتحميل الأصول</span>
+            <ArrowRight size={14} className="rotate-180" />
+          </button>
+        </form>
 
       </div>
     </div>

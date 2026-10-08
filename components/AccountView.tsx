@@ -17,7 +17,13 @@ import {
   Check
 } from 'lucide-react';
 import { User } from '../types';
-import { saveUserAsset, getUserAsset, setCurrentUser, fetchUserFromFirestoreByEmail } from '../authService';
+import { 
+  saveUserAsset, 
+  getUserAsset, 
+  setCurrentUser, 
+  fetchUserFromFirestoreByEmail,
+  subscribeToUserAssets 
+} from '../authService';
 import SignaturePad from './SignaturePad';
 
 interface AccountViewProps {
@@ -67,17 +73,23 @@ export const AccountView: React.FC<AccountViewProps> = ({
   const [savingType, setSavingType] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Sync latest cloud assets on mount
+  // Sync latest cloud assets on mount and listen to changes
   useEffect(() => {
+    if (!currentUser?.email) return;
+
+    const unsubscribe = subscribeToUserAssets(currentUser.email, () => {
+      onUpdate();
+    });
+
     const syncAssets = async () => {
-      if (currentUser?.email) {
-        const freshUser = await fetchUserFromFirestoreByEmail(currentUser.email);
-        if (freshUser) {
-          onUpdate();
-        }
+      const freshUser = await fetchUserFromFirestoreByEmail(currentUser.email);
+      if (freshUser) {
+        onUpdate();
       }
     };
     syncAssets();
+
+    return () => unsubscribe();
   }, [currentUser?.email]);
 
   const showToast = (msg: string) => {
