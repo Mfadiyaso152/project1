@@ -1,237 +1,353 @@
 import React, { useState } from 'react';
 import { 
+  ArrowLeft, 
   User as UserIcon, 
   Mail, 
-  Phone, 
-  LogOut, 
-  CheckCircle2, 
-  Calendar, 
-  Headphones, 
-  FileText, 
+  ShieldCheck, 
+  Layers, 
   Stamp, 
   PenTool, 
-  ShieldCheck,
-  Layers,
-  ChevronDown,
-  ChevronUp
+  FileText, 
+  Trash2, 
+  Upload, 
+  CheckCircle2, 
+  LogOut,
+  Sparkles,
+  Cloud,
+  Check
 } from 'lucide-react';
-import FileUpload from './FileUpload';
-import SignaturePad from './SignaturePad';
 import { User } from '../types';
-import { updateUserInDb, setCurrentUser, ADMIN_EMAIL } from '../authService';
+import { saveUserAsset, getUserAsset, setCurrentUser } from '../authService';
+import SignaturePad from './SignaturePad';
 
 interface AccountViewProps {
   currentUser: User;
+  onBack: () => void;
   onLogout: () => void;
   onUpdate: () => void;
 }
 
-export const AccountView: React.FC<AccountViewProps> = ({ currentUser, onLogout, onUpdate }) => {
-  const isAdmin = currentUser.role === 'admin' || currentUser.email.toLowerCase() === ADMIN_EMAIL.toLowerCase();
-  const isLight = currentUser.theme !== 'space-dark';
-  
-  const [saveMessage, setSaveMessage] = useState('');
-  const [showCloudAssets, setShowCloudAssets] = useState(false); // Closed initially to save space
-  const [isDrawingCloudSignature, setIsDrawingCloudSignature] = useState(false);
+export const AccountView: React.FC<AccountViewProps> = ({
+  currentUser,
+  onBack,
+  onLogout,
+  onUpdate
+}) => {
+  const [isDrawingSignature, setIsDrawingSignature] = useState(false);
+  const [savingType, setSavingType] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  const handleSaveDataUrlAsset = (type: 'template' | 'stamp' | 'signature', dataUrl: string | null) => {
-    if (!currentUser.savedAssets) {
-      currentUser.savedAssets = { template: null, stamp: null, signature: null };
-    }
-    currentUser.savedAssets[type] = dataUrl;
-    updateUserInDb(currentUser);
-    setCurrentUser(currentUser);
-    setSaveMessage('تم حفظ أصولك السحابية بنجاح!');
-    setTimeout(() => setSaveMessage(''), 3000);
-    onUpdate();
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3500);
   };
 
-  const handleSaveAsset = (type: 'template' | 'stamp' | 'signature', file: File) => {
+  const handleAssetUpload = async (type: 'template' | 'stamp' | 'signature', file: File) => {
+    setSavingType(type);
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       const dataUrl = e.target?.result as string;
-      handleSaveDataUrlAsset(type, dataUrl);
+      if (dataUrl) {
+        await saveUserAsset(type, dataUrl, currentUser);
+        setSavingType(null);
+        showToast(`تم حفظ ${type === 'template' ? 'الورقة الرسمية' : type === 'stamp' ? 'الختم' : 'التوقيع'} في السيرفر وربطه بحسابك بنجاح ✅`);
+        onUpdate();
+      }
     };
     reader.readAsDataURL(file);
   };
 
-  const cardClass = isLight ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800';
-  const textPrimary = isLight ? 'text-slate-900' : 'text-white';
-  const textSecondary = isLight ? 'text-slate-500' : 'text-slate-400';
+  const handleSignatureSave = async (dataUrl: string) => {
+    setSavingType('signature');
+    setIsDrawingSignature(false);
+    await saveUserAsset('signature', dataUrl, currentUser);
+    setSavingType(null);
+    showToast('تم حفظ التوقيع في السيرفر وربطه بحسابك بنجاح ✅');
+    onUpdate();
+  };
+
+  const handleDeleteAsset = async (type: 'template' | 'stamp' | 'signature') => {
+    setSavingType(type);
+    await saveUserAsset(type, null, currentUser);
+    setSavingType(null);
+    showToast(`تم حذف ${type === 'template' ? 'الورقة الرسمية' : type === 'stamp' ? 'الختم' : 'التوقيع'} من حسابك بنجاح`);
+    onUpdate();
+  };
+
+  const templateAsset = getUserAsset('template', currentUser);
+  const stampAsset = getUserAsset('stamp', currentUser);
+  const signatureAsset = getUserAsset('signature', currentUser);
 
   return (
-    <div className="max-w-2xl mx-auto w-full flex flex-col gap-5 animate-fade-in-up pb-safe px-2 sm:px-0" dir="rtl">
+    <div className="min-h-screen bg-[#f8fafc] text-slate-900 flex flex-col font-sans relative" dir="rtl">
       
-      {/* Profile Header */}
-      <div className={`p-7 rounded-3xl border flex flex-col items-center text-center gap-3 shadow-xl ${cardClass}`}>
-        <div className="relative">
-          {currentUser.avatar ? (
-            <img src={currentUser.avatar} alt={currentUser.name} className="w-20 h-20 rounded-3xl object-cover shadow-lg border-2 border-teal-500" />
-          ) : (
-            <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-teal-400 to-teal-600 text-white flex items-center justify-center font-bold text-2xl shadow-lg">
-              <UserIcon size={40} />
-            </div>
-          )}
-        </div>
-
-        <div>
-          <h2 className={`text-2xl font-black ${textPrimary}`}>{currentUser.name || 'مستخدم وثيق'}</h2>
-          
-          <div className="flex items-center justify-center gap-3 mt-1.5 flex-wrap text-sm">
-            <span className={`font-mono flex items-center gap-1.5 ${textSecondary}`}>
-              <Mail size={14} className="text-teal-500" /> {currentUser.email}
-            </span>
-            {currentUser.phone && (
-              <span className={`font-mono flex items-center gap-1.5 ${textSecondary}`}>
-                <Phone size={14} className="text-teal-500" /> {currentUser.phone}
-              </span>
-            )}
-            {currentUser.dob && (
-              <span className={`flex items-center gap-1.5 ${textSecondary}`}>
-                <Calendar size={14} className="text-teal-500" /> ميلاد: {currentUser.dob}
-              </span>
-            )}
-          </div>
-
-          <div className="inline-flex items-center gap-1.5 bg-teal-50 text-teal-700 border border-teal-200 px-3.5 py-1 rounded-full text-xs font-bold mt-2.5">
-            <ShieldCheck size={14} className="text-teal-600" />
-            <span>حساب موثّق ومعتمد</span>
+      {/* Toast */}
+      {toastMessage && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 animate-fade-in-up">
+          <div className="bg-blue-900 text-white px-5 py-3 rounded-2xl shadow-xl text-xs font-bold flex items-center gap-2.5 border border-blue-700">
+            <CheckCircle2 size={16} className="text-blue-300" />
+            <span>{toastMessage}</span>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* Cloud Assets Vault (Collapsible for space efficiency) */}
-      <div className={`p-5 sm:p-6 rounded-3xl border flex flex-col gap-4 shadow-xl transition-all ${cardClass}`}>
-        <div 
-          onClick={() => setShowCloudAssets(!showCloudAssets)}
-          className="flex items-center justify-between cursor-pointer select-none group"
-        >
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-teal-50 text-teal-600 rounded-2xl transition-transform group-hover:scale-105">
-              <Layers size={20} />
-            </div>
-            <div>
-              <h3 className={`font-black text-base sm:text-lg ${textPrimary}`}>أصولي المحفوظة (السحابة)</h3>
-              <p className={`text-xs ${textSecondary}`}>أختامك وتوقيعك وورقتك الرسمية الجاهزة</p>
-            </div>
-          </div>
+      {/* Main Container */}
+      <div className="max-w-3xl mx-auto px-4 py-8 flex-1 w-full flex flex-col gap-6 animate-fade-in-up">
+        
+        {/* Top Navigation Bar */}
+        <div className="flex items-center justify-between">
+          <button
+            onClick={onBack}
+            className="flex items-center gap-2 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 px-4 py-2.5 rounded-2xl font-bold text-xs shadow-xs hover:shadow-sm transition-all hover:scale-[1.02] cursor-pointer"
+          >
+            <ArrowLeft size={16} />
+            <span>العودة للرئيسية</span>
+          </button>
 
           <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setShowCloudAssets(!showCloudAssets);
-            }}
-            className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl border transition-all cursor-pointer ${
-              showCloudAssets
-                ? (isLight ? 'bg-teal-50 text-teal-700 border-teal-200' : 'bg-teal-950 text-teal-300 border-teal-800')
-                : (isLight ? 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200' : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700')
-            }`}
+            onClick={onLogout}
+            className="flex items-center gap-1.5 text-xs font-bold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 px-3.5 py-2 rounded-xl transition-colors cursor-pointer"
           >
-            <span>{showCloudAssets ? 'إخفاء' : 'عرض المزيد'}</span>
-            {showCloudAssets ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+            <LogOut size={14} />
+            <span>تسجيل الخروج</span>
           </button>
         </div>
-        
-        {showCloudAssets && (
-          <div className="flex flex-col gap-4 pt-3 border-t border-slate-100 dark:border-slate-800 animate-fade-in">
-            <FileUpload
-              label="الورقة الرسمية المحفوظة"
-              subLabel="ورقة المؤسسة الرسمية الخاصة بك"
-              accept="image/*,application/pdf"
-              value={currentUser.savedAssets?.template}
-              onChange={(f) => handleSaveAsset('template', f as File)}
-              onClear={() => handleSaveDataUrlAsset('template', null)}
-              icon={<FileText size={24} className="text-teal-500" />}
-            />
-            
-            <FileUpload
-              label="الختم الرسمي المحفوظ"
-              subLabel="صورة شفافة PNG أو JPEG"
-              accept="image/png, image/jpeg, application/pdf"
-              value={currentUser.savedAssets?.stamp}
-              onChange={(f) => handleSaveAsset('stamp', f as File)}
-              onClear={() => handleSaveDataUrlAsset('stamp', null)}
-              icon={<Stamp size={24} className="text-teal-500" />}
-            />
-            
-            <div>
-              <FileUpload
-                label="التوقيع المحفوظ"
-                subLabel="صورة توقيعك المعتمد"
-                accept="image/png, image/jpeg, application/pdf"
-                value={currentUser.savedAssets?.signature}
-                onChange={(f) => handleSaveAsset('signature', f as File)}
-                onClear={() => handleSaveDataUrlAsset('signature', null)}
-                icon={<PenTool size={24} className="text-teal-500" />}
+
+        {/* Profile Header (Name & Email ONLY) */}
+        <div className="bg-white border border-slate-200/90 rounded-3xl p-7 sm:p-8 shadow-sm flex flex-col sm:flex-row items-center gap-6 text-center sm:text-right">
+          <div className="relative shrink-0">
+            {currentUser.avatar ? (
+              <img 
+                src={currentUser.avatar} 
+                alt={currentUser.name} 
+                className="w-20 h-20 rounded-3xl object-cover border-2 border-blue-600 shadow-md"
               />
-              <div className="mt-2.5 flex justify-end">
-                <button 
-                  onClick={() => setIsDrawingCloudSignature(true)}
-                  className={`text-xs px-4 py-2 font-bold rounded-xl transition-colors flex items-center gap-2 cursor-pointer ${
-                    isLight ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' : 'bg-slate-800 hover:bg-slate-700 text-slate-200'
-                  }`}
+            ) : (
+              <div className="w-20 h-20 rounded-3xl bg-blue-50 text-blue-600 border border-blue-200 flex items-center justify-center shadow-md">
+                <UserIcon size={36} />
+              </div>
+            )}
+            <div className="absolute -bottom-1 -left-1 bg-blue-600 text-white p-1 rounded-full shadow-xs">
+              <Cloud size={12} />
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-1.5 flex-1">
+            <h1 className="text-2xl font-black text-slate-900">
+              {currentUser.name || 'مستخدم وثيق'}
+            </h1>
+            
+            <div className="flex items-center justify-center sm:justify-start gap-2 text-slate-500 text-xs font-mono">
+              <Mail size={14} className="text-blue-600 shrink-0" />
+              <span>{currentUser.email}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* SAVED ASSETS (الأصول المحفوظة في السيرفر) */}
+        <div className="bg-white border border-slate-200/90 rounded-3xl p-6 sm:p-8 shadow-sm flex flex-col gap-6">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+            <div className="flex items-center gap-2.5">
+              <div className="w-2.5 h-6 bg-gradient-to-b from-blue-600 to-indigo-600 rounded-full" />
+              <div>
+                <h2 className="text-lg font-black text-slate-900">الأصول المحفوظة في السيرفر</h2>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+            
+            {/* 1. Official Letterhead */}
+            <div className="bg-slate-50/70 border border-slate-200/80 rounded-2xl p-4 flex flex-col justify-between gap-4">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                  <Layers size={16} className="text-blue-600" />
+                  <span>الورقة الرسمية</span>
+                </span>
+                {templateAsset && (
+                  <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-2 py-0.5 rounded-md">
+                    محفوظة ✅
+                  </span>
+                )}
+              </div>
+
+              {/* Preview Box */}
+              <div className="aspect-[3/4] bg-white rounded-xl border border-slate-200 shadow-xs flex items-center justify-center overflow-hidden relative group">
+                {templateAsset ? (
+                  <>
+                    <img src={templateAsset} alt="Template" className="w-full h-full object-contain p-1" />
+                    <div className="absolute inset-0 bg-slate-950/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        onClick={() => handleDeleteAsset('template')}
+                        disabled={savingType === 'template'}
+                        className="bg-rose-600 hover:bg-rose-700 text-white p-2 rounded-xl text-xs font-bold flex items-center gap-1 cursor-pointer shadow-lg"
+                      >
+                        <Trash2 size={14} />
+                        <span>حذف</span>
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-center p-3 text-slate-400 flex flex-col items-center gap-1.5">
+                    <FileText size={28} className="text-slate-300" />
+                    <span className="text-[11px] font-bold text-slate-500">لا توجد ورقة محفوظة</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Upload Action */}
+              <label className="w-full bg-white hover:bg-blue-50 text-blue-700 hover:text-blue-800 border border-blue-200 hover:border-blue-400 py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs">
+                <Upload size={14} />
+                <span>{templateAsset ? 'تغيير الورقة' : 'رفع ورقة رسمية'}</span>
+                <input 
+                  type="file" 
+                  accept="image/*" 
+                  className="hidden" 
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files[0]) {
+                      handleAssetUpload('template', e.target.files[0]);
+                    }
+                  }} 
+                />
+              </label>
+            </div>
+
+            {/* 2. Official Stamp */}
+            <div className="bg-slate-50/70 border border-slate-200/80 rounded-2xl p-4 flex flex-col justify-between gap-4">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                  <Stamp size={16} className="text-blue-600" />
+                  <span>ختم المؤسسة</span>
+                </span>
+                {stampAsset && (
+                  <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-2 py-0.5 rounded-md">
+                    محفوظ ✅
+                  </span>
+                )}
+              </div>
+
+              {/* Preview Box */}
+              <div className="aspect-[3/4] bg-white rounded-xl border border-slate-200 shadow-xs flex items-center justify-center overflow-hidden relative group">
+                {stampAsset ? (
+                  <>
+                    <img src={stampAsset} alt="Stamp" className="w-full h-full object-contain p-2" />
+                    <div className="absolute inset-0 bg-slate-950/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        onClick={() => handleDeleteAsset('stamp')}
+                        disabled={savingType === 'stamp'}
+                        className="bg-rose-600 hover:bg-rose-700 text-white p-2 rounded-xl text-xs font-bold flex items-center gap-1 cursor-pointer shadow-lg"
+                      >
+                        <Trash2 size={14} />
+                        <span>حذف</span>
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-center p-3 text-slate-400 flex flex-col items-center gap-1.5">
+                    <Stamp size={28} className="text-slate-300" />
+                    <span className="text-[11px] font-bold text-slate-500">لا يوجد ختم محفوظ</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Upload Action */}
+              <label className="w-full bg-white hover:bg-blue-50 text-blue-700 hover:text-blue-800 border border-blue-200 hover:border-blue-400 py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs">
+                <Upload size={14} />
+                <span>{stampAsset ? 'تغيير الختم' : 'رفع ختم رسمي'}</span>
+                <input 
+                  type="file" 
+                  accept="image/png, image/jpeg" 
+                  className="hidden" 
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files[0]) {
+                      handleAssetUpload('stamp', e.target.files[0]);
+                    }
+                  }} 
+                />
+              </label>
+            </div>
+
+            {/* 3. Authorized Signature */}
+            <div className="bg-slate-50/70 border border-slate-200/80 rounded-2xl p-4 flex flex-col justify-between gap-4">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                  <PenTool size={16} className="text-blue-600" />
+                  <span>التوقيع المعتمد</span>
+                </span>
+                {signatureAsset && (
+                  <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-2 py-0.5 rounded-md">
+                    محفوظ ✅
+                  </span>
+                )}
+              </div>
+
+              {/* Preview Box */}
+              <div className="aspect-[3/4] bg-white rounded-xl border border-slate-200 shadow-xs flex items-center justify-center overflow-hidden relative group">
+                {signatureAsset ? (
+                  <>
+                    <img src={signatureAsset} alt="Signature" className="w-full h-full object-contain p-2" />
+                    <div className="absolute inset-0 bg-slate-950/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        onClick={() => handleDeleteAsset('signature')}
+                        disabled={savingType === 'signature'}
+                        className="bg-rose-600 hover:bg-rose-700 text-white p-2 rounded-xl text-xs font-bold flex items-center gap-1 cursor-pointer shadow-lg"
+                      >
+                        <Trash2 size={14} />
+                        <span>حذف</span>
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-center p-3 text-slate-400 flex flex-col items-center gap-1.5">
+                    <PenTool size={28} className="text-slate-300" />
+                    <span className="text-[11px] font-bold text-slate-500">لا يوجد توقيع محفوظ</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Signature Actions (Draw or Upload) */}
+              <div className="flex flex-col gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setIsDrawingSignature(true)}
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs"
                 >
-                  <PenTool size={14} />
-                  <span>رسم توقيع جديد وحفظه ✍️</span>
+                  <PenTool size={13} />
+                  <span>رسم توقيع حي ✍️</span>
                 </button>
+
+                <label className="w-full bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 py-1.5 px-3 rounded-xl font-bold text-[11px] flex items-center justify-center gap-1 transition-all cursor-pointer">
+                  <Upload size={12} />
+                  <span>رفع صورة توقيع</span>
+                  <input 
+                    type="file" 
+                    accept="image/png, image/jpeg" 
+                    className="hidden" 
+                    onChange={(e) => {
+                      if (e.target.files && e.target.files[0]) {
+                        handleAssetUpload('signature', e.target.files[0]);
+                      }
+                    }} 
+                  />
+                </label>
               </div>
             </div>
 
-            {saveMessage && (
-              <div className="text-sm font-bold text-emerald-700 bg-emerald-50 p-3 rounded-xl border border-emerald-200 flex items-center justify-center gap-2 animate-fade-in">
-                <CheckCircle2 size={16} />
-                <span>{saveMessage}</span>
-              </div>
-            )}
           </div>
-        )}
+        </div>
+
       </div>
 
-      {/* Drawing Signature Modal */}
-      {isDrawingCloudSignature && (
+      {/* Signature Pad Modal */}
+      {isDrawingSignature && (
         <SignaturePad
-          onSave={(dataUrl) => {
-            handleSaveDataUrlAsset('signature', dataUrl);
-            setIsDrawingCloudSignature(false);
-          }}
-          onClose={() => setIsDrawingCloudSignature(false)}
+          onSave={handleSignatureSave}
+          onClose={() => setIsDrawingSignature(false)}
         />
       )}
-
-      {/* Tech Support - Only for regular users, hidden for Admin */}
-      {!isAdmin && (
-        <div className={`p-6 rounded-3xl border flex flex-col gap-4 shadow-xl ${cardClass}`}>
-          <h3 className={`font-black text-lg flex items-center gap-2 ${textPrimary}`}>
-            <Headphones size={18} className="text-teal-500" />
-            الدعم والمساعدة
-          </h3>
-          <p className={`text-sm ${textSecondary}`}>
-            هل لديك استفسار أو اقتراح؟ يمكنك التواصل مع الإدارة مباشرة عبر واتساب.
-          </p>
-          <a 
-            href="https://wa.me/966536894854?text=مرحباً،%20أحتاج%20مساعدة%20في%20منصة%20وثيق" 
-            target="_blank" 
-            rel="noopener noreferrer"
-            className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-2xl text-center transition-all hover:scale-[1.01] shadow-lg flex items-center justify-center gap-2"
-          >
-            <Phone size={18} />
-            <span>تواصل مع الإدارة عبر واتساب</span>
-          </a>
-        </div>
-      )}
-
-      {/* Logout Action */}
-      <button
-        onClick={onLogout}
-        className={`w-full py-4 px-4 font-bold rounded-2xl text-sm transition-all hover:scale-[1.01] cursor-pointer flex items-center justify-center gap-2 shadow-sm ${
-          isLight ? 'bg-red-50 hover:bg-red-100 text-red-600 border border-red-200' : 'bg-slate-800 hover:bg-slate-700 text-red-400 border border-slate-700'
-        }`}
-      >
-        <LogOut size={18} />
-        <span>تسجيل الخروج من الحساب</span>
-      </button>
 
     </div>
   );
 };
+
+export default AccountView;

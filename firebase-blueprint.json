@@ -1,0 +1,38 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile with saved assets for Watheeq notarization",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "name": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "user"] },
+        "status": { "type": "string", "enum": ["active", "suspended"] },
+        "authProvider": { "type": "string" },
+        "avatar": { "type": "string" },
+        "phone": { "type": "string" },
+        "dob": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "lastLoginAt": { "type": "string" },
+        "theme": { "type": "string" },
+        "savedAssets": {
+          "type": "object",
+          "properties": {
+            "template": { "type": "string" },
+            "stamp": { "type": "string" },
+            "signature": { "type": "string" }
+          }
+        }
+      },
+      "required": ["email", "name"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Stores user profiles and persistent saved assets (letterhead, stamp, signature)"
+    }
+  }
+}

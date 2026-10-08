@@ -7,12 +7,12 @@
     <meta name="keywords" content="وثيق, توثيق المستندات, دمج المستندات, ختم إلكتروني, توقيع إلكتروني, ورقة رسمية, تصديق المستندات, Wathiq" />
     <meta name="author" content="وثيق" />
     <meta name="robots" content="index, follow" />
-    <title>وثيق | wathiq</title>
+    <title>وثيق|wathiq</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="alternate icon" href="/favicon.svg" />
-    <meta name="application-name" content="وثيق | wathiq" />
-    <meta name="apple-mobile-web-app-title" content="وثيق | wathiq" />
-    <meta property="og:title" content="وثيق | wathiq" />
+    <meta name="application-name" content="وثيق|wathiq" />
+    <meta name="apple-mobile-web-app-title" content="وثيق|wathiq" />
+    <meta property="og:title" content="وثيق|wathiq" />
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Amiri:ital,wght@0,400;0,700;1,400;1,700&family=Cairo:wght@200;300;400;500;600;700;800;900&family=Noto+Naskh+Arabic:wght@400;700&display=swap" rel="stylesheet">
     <!-- Google Identity Services -->
@@ -28,20 +28,22 @@
       body {
         font-family: 'Cairo', sans-serif;
         background-color: #f8fafc;
+        color: #0f172a;
+        scrollbar-width: none; /* Firefox */
+        -ms-overflow-style: none; /* IE and Edge */
       }
-      /* Custom scrollbar for better aesthetics */
+      /* Hide scrollbar for Chrome, Safari and Opera */
       ::-webkit-scrollbar {
-        width: 8px;
+        display: none !important;
+        width: 0 !important;
+        height: 0 !important;
       }
-      ::-webkit-scrollbar-track {
-        background: #f1f1f1;
+      * {
+        scrollbar-width: none !important;
+        -ms-overflow-style: none !important;
       }
-      ::-webkit-scrollbar-thumb {
-        background: #cbd5e1;
-        border-radius: 4px;
-      }
-      ::-webkit-scrollbar-thumb:hover {
-        background: #94a3b8;
+      *::-webkit-scrollbar {
+        display: none !important;
       }
       
       /* Beautiful Fade In animations with smooth Bezier curve */
@@ -74,14 +76,42 @@
         }
       }
       
+      @keyframes pulseGlow {
+        0%, 100% {
+          opacity: 0.6;
+          transform: scale(1);
+        }
+        50% {
+          opacity: 1;
+          transform: scale(1.06);
+        }
+      }
+      @keyframes luxurySpin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+      @keyframes luxurySpinReverse {
+        0% { transform: rotate(360deg); }
+        100% { transform: rotate(0deg); }
+      }
+      
       .animate-fade-in-up {
-        animation: fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        animation: fadeInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
       }
       .animate-fade-in {
-        animation: fadeIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
       }
       .animate-scale-in {
-        animation: scaleIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        animation: scaleIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      }
+      .animate-pulse-glow {
+        animation: pulseGlow 2.5s ease-in-out infinite;
+      }
+      .animate-spin-slow {
+        animation: luxurySpin 10s linear infinite;
+      }
+      .animate-spin-reverse-slow {
+        animation: luxurySpinReverse 7s linear infinite;
       }
 
       .pb-safe {
@@ -90,7 +120,7 @@
       .pt-safe {
         padding-top: env(safe-area-inset-top, 20px);
       }
-    
+
       html { scroll-behavior: smooth; }
       /* Smooth transitions for all interactive elements */
       button, input, a, div, span, nav, header, main {
@@ -99,19 +129,6 @@
         transition-duration: 300ms;
       }
     </style>
-    <script type="importmap">
-{
-  "imports": {
-    "react": "https://esm.sh/react@^19.2.3",
-    "react/": "https://esm.sh/react@^19.2.3/",
-    "@google/genai": "https://esm.sh/@google/genai@^1.33.0",
-    "lucide-react": "https://esm.sh/lucide-react@^0.561.0",
-    "jspdf": "https://esm.sh/jspdf@^3.0.4",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.3/"
-  }
-}
-    </script>
-    <link rel="stylesheet" href="/index.css">
   </head>
   <body>
     <div id="root"></div>

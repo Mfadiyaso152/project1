@@ -31,7 +31,7 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({ onSuccess, onCancel }) => {
 
     if (res.success && res.user) {
       setSuccessMsg(res.message);
-      setTimeout(() => onSuccess(res.user!), 400);
+      setTimeout(() => onSuccess(res.user!), 300);
     } else {
       setError(res.message || 'تعذر تسجيل الدخول');
     }
@@ -44,12 +44,10 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({ onSuccess, onCancel }) => {
     setUnauthorizedDomain(null);
 
     try {
-      // Force Google account chooser on the user's device
       googleProvider.setCustomParameters({
         prompt: 'select_account'
       });
 
-      // Launch actual Google Auth popup
       const result = await signInWithPopup(auth, googleProvider);
       const firebaseUser = result.user;
 
@@ -66,7 +64,6 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({ onSuccess, onCancel }) => {
       setIsLoading(false);
 
       if (err?.code === 'auth/popup-closed-by-user' || err?.code === 'auth/cancelled-popup-request') {
-        // User closed the popup window - reset state cleanly
         setError('');
         return;
       }
@@ -103,67 +100,67 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({ onSuccess, onCancel }) => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 relative overflow-hidden" dir="rtl">
-      {/* Subtle Background Elements */}
-      <div className="absolute top-[-10%] right-[-5%] w-96 h-96 bg-teal-500/10 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute bottom-[-10%] left-[-5%] w-96 h-96 bg-teal-600/10 rounded-full blur-3xl pointer-events-none" />
+    <div className="min-h-screen bg-[#f8fafc] text-slate-900 flex flex-col items-center justify-center p-4 relative overflow-hidden" dir="rtl">
+      {/* Ambient background */}
+      <div className="absolute top-[-10%] right-[-5%] w-96 h-96 bg-blue-500/10 rounded-full blur-[100px] pointer-events-none" />
+      <div className="absolute bottom-[-10%] left-[-5%] w-96 h-96 bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none" />
       
       {/* Return to Landing Button */}
       {onCancel && (
         <button
           onClick={onCancel}
-          className="absolute top-6 right-6 z-20 flex items-center gap-2 text-sm font-bold text-slate-600 hover:text-teal-600 bg-white border border-slate-200 px-4 py-2 rounded-2xl shadow-sm transition-all hover:scale-105 cursor-pointer"
+          className="absolute top-6 right-6 z-20 flex items-center gap-2 text-xs font-bold text-slate-600 hover:text-blue-700 bg-white hover:bg-slate-50 border border-slate-200 px-4 py-2 rounded-xl shadow-xs transition-all hover:scale-105 cursor-pointer"
         >
-          <ArrowLeft size={16} />
+          <ArrowLeft size={15} />
           <span>الرئيسية</span>
         </button>
       )}
 
       {/* Main Card */}
-      <div className="relative z-10 w-full max-w-md animate-scale-in bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 shadow-2xl my-8">
+      <div className="relative z-10 w-full max-w-md animate-scale-in bg-white border border-slate-200/90 rounded-3xl p-7 sm:p-9 shadow-xl my-8">
         
         {/* Header */}
-        <div className="text-center mb-7">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-teal-50 text-teal-600 mb-3 shadow-sm border border-teal-100">
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-blue-50 text-blue-600 mb-4 border border-blue-100 shadow-sm">
             <FileText size={32} className="stroke-[2.5]" />
           </div>
           <h1 className="text-2xl font-black text-slate-900 mb-1.5">
             تسجيل الدخول
           </h1>
-          <p className="text-slate-500 text-sm">
-            سجّل دخولك بحساب Google المعتمد للمتابعة
+          <p className="text-slate-500 text-xs">
+            سجّل دخولك بحسابك المعتمد للدخول إلى منصة وثيق
           </p>
         </div>
 
         {/* Error / Success Messages */}
         {error && (
-          <div className="bg-amber-50 border border-amber-200 text-amber-900 p-4 rounded-2xl text-sm font-bold mb-5 flex flex-col gap-2.5 animate-shake">
+          <div className="bg-amber-50 border border-amber-200 text-amber-900 p-4 rounded-2xl text-xs font-bold mb-5 flex flex-col gap-2.5 animate-shake">
             <div className="flex items-center gap-2 text-amber-700">
-              <AlertCircle size={18} className="shrink-0" />
+              <AlertCircle size={16} className="shrink-0" />
               <span className="leading-tight">{error}</span>
             </div>
 
             {unauthorizedDomain && (
-              <div className="bg-white/80 p-3 rounded-xl border border-amber-200 text-xs font-normal text-slate-700 flex flex-col gap-2">
-                <span className="font-bold text-slate-800">النطاق المطلوب إضافته في Firebase:</span>
-                <div className="flex items-center justify-between gap-2 bg-slate-50 p-2 rounded-lg border border-slate-200 font-mono text-[11px] text-teal-700">
+              <div className="bg-white p-3 rounded-xl border border-amber-200 text-xs font-normal text-slate-700 flex flex-col gap-2">
+                <span className="font-bold text-slate-800 text-[11px]">النطاق المطلوب إضافته في Firebase:</span>
+                <div className="flex items-center justify-between gap-2 bg-slate-50 p-2 rounded-lg border border-slate-200 font-mono text-[11px] text-blue-700">
                   <span className="truncate">{currentDomain}</span>
                   <button
                     onClick={handleCopyDomain}
                     type="button"
-                    className="flex items-center gap-1 shrink-0 bg-teal-600 hover:bg-teal-700 text-white px-2 py-1 rounded-md text-[10px] font-bold transition-colors cursor-pointer"
+                    className="flex items-center gap-1 shrink-0 bg-blue-600 hover:bg-blue-700 text-white px-2.5 py-1 rounded-md text-[10px] font-black transition-colors cursor-pointer"
                   >
                     {copied ? <Check size={12} /> : <Copy size={12} />}
                     <span>{copied ? 'تم النسخ' : 'نسخ النطاق'}</span>
                   </button>
                 </div>
 
-                <div className="pt-2 border-t border-amber-200/60 flex flex-col gap-1.5">
-                  <span className="text-slate-600 text-[11px]">يمكنك المتابعة فوراً بحسابك المسجل:</span>
+                <div className="pt-2 border-t border-slate-100 flex flex-col gap-1.5">
+                  <span className="text-slate-500 text-[11px]">أو يمكنك المتابعة المباشرة:</span>
                   <button
                     type="button"
                     onClick={handleQuickContinue}
-                    className="w-full bg-teal-500 hover:bg-teal-600 text-white font-bold py-2.5 px-3 rounded-xl text-xs transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer"
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-2.5 px-3 rounded-xl text-xs transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer"
                   >
                     <UserIcon size={14} />
                     <span>المتابعة كـ {ADMIN_EMAIL}</span>
@@ -175,8 +172,8 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({ onSuccess, onCancel }) => {
         )}
 
         {successMsg && (
-          <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 p-3.5 rounded-2xl text-sm font-bold mb-5 flex items-center gap-2.5">
-            <CheckCircle2 size={18} className="shrink-0 text-emerald-600" />
+          <div className="bg-blue-50 border border-blue-200 text-blue-800 p-3.5 rounded-2xl text-xs font-bold mb-5 flex items-center gap-2.5">
+            <CheckCircle2 size={16} className="shrink-0 text-blue-600" />
             <span>{successMsg}</span>
           </div>
         )}
@@ -187,10 +184,10 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({ onSuccess, onCancel }) => {
             type="button"
             onClick={handleGoogleSignIn}
             disabled={isLoading}
-            className="w-full bg-white hover:bg-slate-50 text-slate-800 border-2 border-slate-200 hover:border-teal-500 font-black py-4 px-4 rounded-2xl flex items-center justify-center gap-3 shadow-md hover:shadow-lg transition-all hover:scale-[1.01] active:scale-[0.98] cursor-pointer"
+            className="w-full bg-white hover:bg-slate-50 text-slate-800 border-2 border-slate-200 hover:border-blue-500 font-black py-4 px-4 rounded-2xl flex items-center justify-center gap-3 shadow-sm hover:shadow-md transition-all hover:scale-[1.01] active:scale-[0.98] cursor-pointer"
           >
             {isLoading ? (
-              <div className="w-5 h-5 border-2 border-teal-500 border-t-transparent rounded-full animate-spin" />
+              <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
             ) : (
               <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
                 <path
@@ -211,7 +208,7 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({ onSuccess, onCancel }) => {
                 />
               </svg>
             )}
-            <span className="text-base font-black">
+            <span className="text-sm font-black">
               {isLoading ? 'جاري فتح نافذة حسابات Google...' : 'المتابعة باستخدام حساب Google'}
             </span>
           </button>

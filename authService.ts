@@ -96,13 +96,43 @@ export const syncUserToFirestore = async (user: User) => {
       dob: user.dob || '',
       createdAt: user.createdAt || new Date().toISOString(),
       lastLoginAt: user.lastLoginAt || new Date().toISOString(),
-      theme: user.theme || 'default-light'
+      theme: user.theme || 'default-light',
+      savedAssets: user.savedAssets || { template: null, stamp: null, signature: null }
     };
 
     await setDoc(userRef, cleanUser, { merge: true });
   } catch (err) {
     console.warn('Firestore Sync User Warning:', err);
   }
+};
+
+export const saveUserAsset = async (
+  type: 'template' | 'stamp' | 'signature',
+  dataUrl: string | null,
+  user: User
+): Promise<User> => {
+  const updatedUser: User = {
+    ...user,
+    savedAssets: {
+      ...(user.savedAssets || { template: null, stamp: null, signature: null }),
+      [type]: dataUrl
+    }
+  };
+  setCurrentUser(updatedUser);
+  try {
+    await syncUserToFirestore(updatedUser);
+  } catch (err) {
+    console.warn('Firestore direct sync error:', err);
+  }
+  return updatedUser;
+};
+
+export const getUserAsset = (
+  type: 'template' | 'stamp' | 'signature',
+  user: User | null
+): string | null => {
+  if (!user || !user.savedAssets) return null;
+  return user.savedAssets[type] || null;
 };
 
 // Firestore Fetch: Load all users from Cloud Firestore & merge

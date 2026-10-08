@@ -17,7 +17,10 @@ import {
   Stamp,
   Share2,
   MessageCircle,
-  X
+  X,
+  FileCheck,
+  ChevronRight,
+  ChevronLeft
 } from 'lucide-react';
 
 interface CanvasEditorProps {
@@ -25,76 +28,34 @@ interface CanvasEditorProps {
   onReset: () => void;
 }
 
-const A4_RATIO = 210 / 297; // Width / Height
-
 const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   
-  // Navigation for multi-page documents
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
-  
-  // Per-page configurations for Stamp & Signature (position, size, enabled)
   const [stampConfigs, setStampConfigs] = useState<{ [key: number]: StampPosition }>({});
   const [signatureConfigs, setSignatureConfigs] = useState<{ [key: number]: StampPosition }>({});
   
-  // State for dragging item ('stamp' or 'signature')
   const [draggingItem, setDraggingItem] = useState<'stamp' | 'signature' | null>(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
-  
-  // Sync coordinates & size across ALL pages (Checked by default!)
   const [syncPositions, setSyncPositions] = useState(true);
   
-  // Customization
-  const [originalOpacity, setOriginalOpacity] = useState(1);
   const [isExporting, setIsExporting] = useState(false);
   const [exportedBlob, setExportedBlob] = useState<Blob | null>(null);
-  const [showShareModal, setShowShareModal] = useState(false);
   const [isExported, setIsExported] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
 
-  const handleDownloadFile = () => {
-    if (!exportedBlob) return;
-    const url = URL.createObjectURL(exportedBlob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'watheeq-certified-document.pdf';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
+  const totalPages = documents.originalPages.length || (documents.original ? 1 : 0);
 
-  const handleWhatsAppShare = async () => {
-    handleDownloadFile();
-    if (exportedBlob && navigator.canShare && navigator.canShare({ files: [new File([exportedBlob], 'certified-document.pdf', { type: 'application/pdf' })] })) {
-      try {
-        await navigator.share({
-          title: 'مستند موثق عبر وثيق',
-          text: 'مرحباً، تم توثيق وتوقيع هذا المستند رسمياً عبر منصة وثيق.',
-          files: [new File([exportedBlob], 'certified-document.pdf', { type: 'application/pdf' })]
-        });
-        return;
-      } catch (err) {
-        console.log('Share canceled');
-      }
-    }
-    const text = encodeURIComponent('مرحباً، تم توثيق المستند رسمياً عبر منصة وثيق 📄✨. (تم تحميل الملف على جهازك، يمكنك إرفاقه مباشرة).');
-    window.open(`https://wa.me/?text=${text}`, '_blank');
-  };
-
-  // Helper: Get template page for specific original page index
   const getTemplateForPage = (index: number): string | null => {
-    if (documents.templatePages.length === 0) return null;
+    if (documents.templatePages.length === 0) return documents.template || null;
     if (documents.templatePages.length === 1) return documents.templatePages[0];
-    
-    // Multi-page template: match 1-to-1. If indexes exceed, use the last page
     if (index < documents.templatePages.length) {
       return documents.templatePages[index];
     }
     return documents.templatePages[documents.templatePages.length - 1];
   };
 
-  // Initialize/populate stamp and signature positions for each page when documents load
   useEffect(() => {
     if (containerRef.current) {
       const { width, height } = containerRef.current.getBoundingClientRect();
@@ -103,10 +64,8 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset }) => {
       
       const defaultStampX = (w / 2) - 65;
       const defaultStampY = h - 150;
-
-      // Position signature directly above the stamp ("احطه فوق الختم")
       const defaultSignatureX = (w / 2) - 65;
-      const defaultSignatureY = h - 260; 
+      const defaultSignatureY = h - 260;
 
       setStampConfigs(prev => {
         const updated = { ...prev };
@@ -116,7 +75,7 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset }) => {
               x: defaultStampX,
               y: defaultStampY,
               size: 130,
-              enabled: !!documents.stamp // Enabled by default if stamp is uploaded
+              enabled: !!documents.stamp
             };
           }
         });
@@ -131,7 +90,7 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset }) => {
               x: defaultSignatureX,
               y: defaultSignatureY,
               size: 130,
-              enabled: !!documents.signature // Enabled by default if signature is uploaded
+              enabled: !!documents.signature
             };
           }
         });
@@ -140,22 +99,20 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset }) => {
     }
   }, [documents.originalPages, documents.stamp, documents.signature]);
 
-  // Current stamp & signature config helpers
   const currentStampConfig = stampConfigs[currentPageIndex] || {
     x: 100,
     y: 350,
     size: 130,
-    enabled: false
+    enabled: !!documents.stamp
   };
 
   const currentSignatureConfig = signatureConfigs[currentPageIndex] || {
     x: 100,
     y: 200,
     size: 130,
-    enabled: false
+    enabled: !!documents.signature
   };
 
-  // Generic start dragging handler
   const handleStartDrag = (item: 'stamp' | 'signature', clientX: number, clientY: number, currentTarget: HTMLElement) => {
     setDraggingItem(item);
     const rect = currentTarget.getBoundingClientRect();
@@ -170,7 +127,6 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset }) => {
   };
 
   const handleTouchStart = (item: 'stamp' | 'signature', e: React.TouchEvent) => {
-    // Touch event helper for mobile
     const touch = e.touches[0];
     handleStartDrag(item, touch.clientX, touch.clientY, e.currentTarget as HTMLElement);
   };
@@ -179,12 +135,9 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset }) => {
     if (!draggingItem || !containerRef.current) return;
     
     const containerRect = containerRef.current.getBoundingClientRect();
-    
-    // Calculate new position relative to container
     let newX = clientX - containerRect.left - dragOffset.x;
     let newY = clientY - containerRect.top - dragOffset.y;
 
-    // Check bounds
     const activeConfig = draggingItem === 'stamp' ? currentStampConfig : currentSignatureConfig;
     const itemSize = activeConfig.size;
     newX = Math.max(0, Math.min(newX, containerRect.width - itemSize));
@@ -198,7 +151,9 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset }) => {
             updated[idx] = {
               ...updated[idx],
               x: newX,
-              y: newY
+              y: newY,
+              size: activeConfig.size,
+              enabled: updated[idx]?.enabled ?? true
             };
           });
         } else {
@@ -210,7 +165,7 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset }) => {
         }
         return updated;
       });
-    } else {
+    } else if (draggingItem === 'signature') {
       setSignatureConfigs(prev => {
         const updated = { ...prev };
         if (syncPositions) {
@@ -218,7 +173,9 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset }) => {
             updated[idx] = {
               ...updated[idx],
               x: newX,
-              y: newY
+              y: newY,
+              size: activeConfig.size,
+              enabled: updated[idx]?.enabled ?? true
             };
           });
         } else {
@@ -231,761 +188,466 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset }) => {
         return updated;
       });
     }
-  }, [draggingItem, dragOffset, currentStampConfig, currentSignatureConfig, currentPageIndex, syncPositions, documents.originalPages]);
+  }, [draggingItem, dragOffset, currentStampConfig, currentSignatureConfig, syncPositions, documents.originalPages, currentPageIndex]);
 
-  const handleGlobalMouseMove = useCallback((e: MouseEvent) => {
+  const handleMouseMove = (e: React.MouseEvent) => {
     handleMove(e.clientX, e.clientY);
-  }, [handleMove]);
+  };
 
-  const handleGlobalTouchMove = useCallback((e: TouchEvent) => {
-    if (e.touches && e.touches.length > 0) {
-      // Prevent mobile default screen scrolling during signature/stamp dragging
-      e.preventDefault();
-      handleMove(e.touches[0].clientX, e.touches[0].clientY);
-    }
-  }, [handleMove]);
+  const handleTouchMove = (e: React.TouchEvent) => {
+    const touch = e.touches[0];
+    handleMove(touch.clientX, touch.clientY);
+  };
 
-  const handleRelease = () => {
+  const handleEndDrag = () => {
     setDraggingItem(null);
   };
 
-  useEffect(() => {
-    if (draggingItem) {
-      window.addEventListener('mousemove', handleGlobalMouseMove);
-      window.addEventListener('mouseup', handleRelease);
-      window.addEventListener('touchmove', handleGlobalTouchMove, { passive: false });
-      window.addEventListener('touchend', handleRelease);
-    } else {
-      window.removeEventListener('mousemove', handleGlobalMouseMove);
-      window.removeEventListener('mouseup', handleRelease);
-      window.removeEventListener('touchmove', handleGlobalTouchMove);
-      window.removeEventListener('touchend', handleRelease);
-    }
-    return () => {
-      window.removeEventListener('mousemove', handleGlobalMouseMove);
-      window.removeEventListener('mouseup', handleRelease);
-      window.removeEventListener('touchmove', handleGlobalTouchMove);
-      window.removeEventListener('touchend', handleRelease);
-    };
-  }, [draggingItem, handleGlobalMouseMove, handleGlobalTouchMove]);
-
-  // Handler for resizing Stamp
   const handleStampSizeChange = (newSize: number) => {
     setStampConfigs(prev => {
       const updated = { ...prev };
       if (syncPositions) {
         documents.originalPages.forEach((_, idx) => {
-          updated[idx] = {
-            ...updated[idx],
-            size: newSize
-          };
+          updated[idx] = { ...updated[idx], size: newSize };
         });
       } else {
-        updated[currentPageIndex] = {
-          ...updated[currentPageIndex],
-          size: newSize
-        };
+        updated[currentPageIndex] = { ...updated[currentPageIndex], size: newSize };
       }
       return updated;
     });
   };
 
-  // Handler for resizing Signature
   const handleSignatureSizeChange = (newSize: number) => {
     setSignatureConfigs(prev => {
       const updated = { ...prev };
       if (syncPositions) {
         documents.originalPages.forEach((_, idx) => {
-          updated[idx] = {
-            ...updated[idx],
-            size: newSize
-          };
+          updated[idx] = { ...updated[idx], size: newSize };
         });
       } else {
-        updated[currentPageIndex] = {
-          ...updated[currentPageIndex],
-          size: newSize
-        };
+        updated[currentPageIndex] = { ...updated[currentPageIndex], size: newSize };
       }
       return updated;
     });
   };
 
-  // Toggle Stamp page status
-  const toggleStampOnPage = () => {
-    setStampConfigs(prev => ({
-      ...prev,
-      [currentPageIndex]: {
-        ...prev[currentPageIndex],
-        enabled: !prev[currentPageIndex]?.enabled
-      }
-    }));
-  };
-
-  const togglePageStamp = (idx: number) => {
-    setStampConfigs(prev => ({
-      ...prev,
-      [idx]: {
-        ...prev[idx],
-        enabled: !prev[idx]?.enabled
-      }
-    }));
-  };
-
-  const enableAllStamps = () => {
-    setStampConfigs(prev => {
-      const updated = { ...prev };
-      documents.originalPages.forEach((_, idx) => {
-        if (updated[idx]) updated[idx].enabled = true;
-      });
-      return updated;
-    });
-  };
-
-  const disableAllStamps = () => {
-    setStampConfigs(prev => {
-      const updated = { ...prev };
-      documents.originalPages.forEach((_, idx) => {
-        if (updated[idx]) updated[idx].enabled = false;
-      });
-      return updated;
-    });
-  };
-
-  // Toggle Signature page status
-  const toggleSignatureOnPage = () => {
-    setSignatureConfigs(prev => ({
-      ...prev,
-      [currentPageIndex]: {
-        ...prev[currentPageIndex],
-        enabled: !prev[currentPageIndex]?.enabled
-      }
-    }));
-  };
-
-  const togglePageSignature = (idx: number) => {
-    setSignatureConfigs(prev => ({
-      ...prev,
-      [idx]: {
-        ...prev[idx],
-        enabled: !prev[idx]?.enabled
-      }
-    }));
-  };
-
-  const enableAllSignatures = () => {
-    setSignatureConfigs(prev => {
-      const updated = { ...prev };
-      documents.originalPages.forEach((_, idx) => {
-        if (updated[idx]) updated[idx].enabled = true;
-      });
-      return updated;
-    });
-  };
-
-  const disableAllSignatures = () => {
-    setSignatureConfigs(prev => {
-      const updated = { ...prev };
-      documents.originalPages.forEach((_, idx) => {
-        if (updated[idx]) updated[idx].enabled = false;
-      });
-      return updated;
-    });
-  };
-
-  // Copy current page coordinates & size to all other pages manually
-  const copyCurrentCoordsToAll = () => {
-    const activeStamp = stampConfigs[currentPageIndex];
-    const activeSig = signatureConfigs[currentPageIndex];
-
-    if (activeStamp) {
-      setStampConfigs(prev => {
-        const updated = { ...prev };
-        documents.originalPages.forEach((_, idx) => {
-          updated[idx] = {
-            ...updated[idx],
-            x: activeStamp.x,
-            y: activeStamp.y,
-            size: activeStamp.size
-          };
-        });
-        return updated;
-      });
-    }
-
-    if (activeSig) {
-      setSignatureConfigs(prev => {
-        const updated = { ...prev };
-        documents.originalPages.forEach((_, idx) => {
-          updated[idx] = {
-            ...updated[idx],
-            x: activeSig.x,
-            y: activeSig.y,
-            size: activeSig.size
-          };
-        });
-        return updated;
-      });
-    }
-  };
-
-  // Export to PDF Logic support multi-template and multi-page
   const handleExport = async () => {
-    if (!canvasRef.current || documents.originalPages.length === 0) return;
     setIsExporting(true);
-
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    // A4 dimensions in pixels (high res representation)
-    const width = 2480; 
-    const height = 3508;
-    canvas.width = width;
-    canvas.height = height;
-
-    // Loader helper
-    const loadImage = (src: string) => new Promise<HTMLImageElement>((resolve, reject) => {
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.onload = () => resolve(img);
-      img.onerror = reject;
-      img.src = src;
-    });
-
     try {
-      // Create jsPDF instance
       const pdf = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',
         format: 'a4'
       });
 
-      const stampImg = documents.stamp ? await loadImage(documents.stamp) : null;
-      const sigImg = documents.signature ? await loadImage(documents.signature) : null;
+      const pagesToProcess = documents.originalPages.length > 0 
+        ? documents.originalPages 
+        : (documents.original ? [documents.original] : []);
 
-      // Loop through all original pages to build multi-page output
-      for (let i = 0; i < documents.originalPages.length; i++) {
-        const pageSrc = documents.originalPages[i];
-        
-        // Reset/clear canvas for next page compilation
-        ctx.clearRect(0, 0, width, height);
+      for (let i = 0; i < pagesToProcess.length; i++) {
+        if (i > 0) pdf.addPage('a4', 'portrait');
 
-        // 1. Draw Template Background for this page index
-        const templatePageSrc = getTemplateForPage(i);
-        if (templatePageSrc) {
-          try {
-            const templateImg = await loadImage(templatePageSrc);
-            ctx.drawImage(templateImg, 0, 0, width, height);
-          } catch (e) {
-            console.error(`Failed to load template page ${i}`, e);
+        const canvas = document.createElement('canvas');
+        canvas.width = 1240;
+        canvas.height = 1754;
+        const ctx = canvas.getContext('2d');
+
+        if (ctx) {
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+          // 1. Template background
+          const currentTemplate = getTemplateForPage(i);
+          if (currentTemplate) {
+            const templateImg = await loadImage(currentTemplate);
+            ctx.drawImage(templateImg, 0, 0, canvas.width, canvas.height);
           }
+
+          // 2. Original Page
+          const origImg = await loadImage(pagesToProcess[i]);
+          ctx.drawImage(origImg, 0, 0, canvas.width, canvas.height);
+
+          // Scale coordinates
+          const containerWidth = containerRef.current?.clientWidth || 400;
+          const containerHeight = containerRef.current?.clientHeight || 565;
+          const scaleX = canvas.width / containerWidth;
+          const scaleY = canvas.height / containerHeight;
+
+          // 3. Signature
+          const sigConfig = signatureConfigs[i];
+          if (documents.signature && sigConfig && sigConfig.enabled) {
+            const sigImg = await loadImage(documents.signature);
+            const sigX = sigConfig.x * scaleX;
+            const sigY = sigConfig.y * scaleY;
+            const sigSize = sigConfig.size * scaleX;
+            ctx.drawImage(sigImg, sigX, sigY, sigSize, sigSize);
+          }
+
+          // 4. Stamp
+          const stampConfig = stampConfigs[i];
+          if (documents.stamp && stampConfig && stampConfig.enabled) {
+            const stampImg = await loadImage(documents.stamp);
+            const stampX = stampConfig.x * scaleX;
+            const stampY = stampConfig.y * scaleY;
+            const stampSize = stampConfig.size * scaleX;
+            ctx.drawImage(stampImg, stampX, stampY, stampSize, stampSize);
+          }
+
+          const pageDataUrl = canvas.toDataURL('image/jpeg', 0.95);
+          pdf.addImage(pageDataUrl, 'JPEG', 0, 0, 210, 297);
         }
-
-        // 2. Draw Original Image for current page index (Centered/Fitted)
-        const originalImg = await loadImage(pageSrc);
-        const imgRatio = originalImg.width / originalImg.height;
-        const canvasRatio = width / height;
-        
-        let drawW = width;
-        let drawH = height;
-        let drawX = 0;
-        let drawY = 0;
-
-        if (imgRatio > canvasRatio) {
-          drawH = width / imgRatio;
-          drawY = (height - drawH) / 2;
-        } else {
-          drawW = height * imgRatio;
-          drawX = (width - drawW) / 2;
-        }
-
-        ctx.save();
-        ctx.globalAlpha = originalOpacity;
-        ctx.globalCompositeOperation = 'multiply'; 
-        ctx.drawImage(originalImg, drawX, drawY, drawW, drawH);
-        ctx.restore();
-
-        // 3. Draw Stamp (if loaded and enabled for this page)
-        const config = stampConfigs[i];
-        if (stampImg && config && config.enabled && containerRef.current) {
-          const containerRect = containerRef.current.getBoundingClientRect();
-          const scaleX = width / containerRect.width;
-          const scaleY = height / containerRect.height;
-
-          const stampX = config.x * scaleX;
-          const stampY = config.y * scaleY;
-          const stampW = config.size * scaleX;
-          const stampH = config.size * scaleY;
-
-          ctx.drawImage(stampImg, stampX, stampY, stampW, stampH);
-        }
-
-        // 4. Draw Signature (if loaded and enabled for this page)
-        const sigConfig = signatureConfigs[i];
-        if (sigImg && sigConfig && sigConfig.enabled && containerRef.current) {
-          const containerRect = containerRef.current.getBoundingClientRect();
-          const scaleX = width / containerRect.width;
-          const scaleY = height / containerRect.height;
-
-          const sigX = sigConfig.x * scaleX;
-          const sigY = sigConfig.y * scaleY;
-          const sigW = sigConfig.size * scaleX;
-          const sigH = sigConfig.size * scaleY;
-
-          ctx.drawImage(sigImg, sigX, sigY, sigW, sigH);
-        }
-
-        // 5. Capture Canvas image & Add to PDF
-        const imgData = canvas.toDataURL('image/jpeg', 0.90);
-        
-        if (i > 0) {
-          pdf.addPage();
-        }
-        pdf.addImage(imgData, 'JPEG', 0, 0, 210, 297);
       }
 
-      const pdfBlob = pdf.output('blob');
-      setExportedBlob(pdfBlob);
+      const blob = pdf.output('blob');
+      setExportedBlob(blob);
       setIsExported(true);
-      setShowShareModal(true);
-      pdf.save('watheeq-certified-document.pdf');
-    } catch (error) {
-      console.error("Export failed", error);
-      alert("حدث خطأ أثناء تصدير الملف");
+    } catch (err: any) {
+      console.error(err);
+      alert('حدث خطأ أثناء تصدير المستند: ' + (err.message || err));
     } finally {
       setIsExporting(false);
     }
   };
 
+  const loadImage = (src: string): Promise<HTMLImageElement> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => resolve(img);
+      img.onerror = (e) => reject(e);
+      img.src = src;
+    });
+  };
+
+  const handleShareClick = async () => {
+    if (!exportedBlob) return;
+    const file = new File([exportedBlob], 'watheeq-certified-document.pdf', { type: 'application/pdf' });
+
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({
+          title: 'مستند موثق عبر وثيق',
+          text: 'تم توثيق وتوقيع هذا المستند رسمياً عبر منصة وثيق.',
+          files: [file]
+        });
+        return;
+      } catch (err) {
+        // User cancelled share
+      }
+    }
+    setShowShareModal(true);
+  };
+
+  const handleDownloadFile = () => {
+    if (!exportedBlob) return;
+    const url = URL.createObjectURL(exportedBlob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'watheeq-certified-document.pdf';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleWhatsAppShare = () => {
+    handleDownloadFile();
+    const text = encodeURIComponent('مرحباً، تم توثيق المستند رسمياً عبر منصة وثيق 📄✨. تم حفظ الملف على جهازك ويمكنك إرفاقه مباشرة.');
+    window.open(`https://wa.me/?text=${text}`, '_blank');
+  };
+
+  const currentPageOriginal = documents.originalPages[currentPageIndex] || documents.original;
+  const currentPageTemplate = getTemplateForPage(currentPageIndex);
+
   return (
-    <div className="flex flex-col lg:flex-row gap-8 w-full max-w-6xl mx-auto">
-      
-      {/* Editor Canvas Area */}
-      <div className="flex-1 flex flex-col items-center">
+    <div 
+      className="flex flex-col lg:flex-row gap-8 items-start justify-center max-w-5xl mx-auto w-full animate-fade-in text-right"
+      dir="rtl"
+      onMouseMove={handleMouseMove}
+      onTouchMove={handleTouchMove}
+      onMouseUp={handleEndDrag}
+      onTouchEnd={handleEndDrag}
+    >
+      {/* Central Canvas View */}
+      <div className="flex-1 w-full flex flex-col items-center">
         
-        {/* Navigation Indicator / Header */}
-        <div className="flex items-center justify-between w-full max-w-[500px] bg-white px-4 py-3 rounded-xl border border-slate-200/80 shadow-xs mb-4">
-          <button
-            onClick={() => setCurrentPageIndex(prev => Math.max(0, prev - 1))}
-            disabled={currentPageIndex === 0}
-            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 disabled:opacity-40 disabled:hover:bg-slate-100 disabled:cursor-not-allowed rounded-lg text-slate-700 font-semibold text-xs transition-colors cursor-pointer"
-          >
-            السابق &larr;
-          </button>
-          <span className="text-slate-700 font-bold text-sm">
-            الصفحة {currentPageIndex + 1} من {documents.originalPages.length}
-          </span>
-          <button
-            onClick={() => setCurrentPageIndex(prev => Math.min(documents.originalPages.length - 1, prev + 1))}
-            disabled={currentPageIndex === documents.originalPages.length - 1}
-            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 disabled:opacity-40 disabled:hover:bg-slate-100 disabled:cursor-not-allowed rounded-lg text-slate-700 font-semibold text-xs transition-colors cursor-pointer"
-          >
-            التالي &rarr;
-          </button>
-        </div>
-
-        <div className="flex-1 flex justify-center bg-slate-200/50 rounded-xl p-4 lg:p-8 overflow-hidden shadow-inner min-h-[550px] items-center w-full">
-          <div 
-            ref={containerRef}
-            className="relative bg-white shadow-2xl transition-all overflow-hidden select-none"
-            style={{
-              width: '100%',
-              maxWidth: '500px', // Visual width on screen
-              aspectRatio: `${A4_RATIO}`,
-            }}
-          >
-            {/* Layer 1: Selected Template Background for current page index */}
-            {getTemplateForPage(currentPageIndex) && (
-              <img 
-                src={getTemplateForPage(currentPageIndex)!} 
-                className="absolute inset-0 w-full h-full object-fill pointer-events-none"
-                alt="Template"
-              />
-            )}
-
-            {/* Layer 2: Original Page - Fitted & Multiplied */}
-            {documents.originalPages[currentPageIndex] && (
-              <img 
-                src={documents.originalPages[currentPageIndex]} 
-                className="absolute inset-0 w-full h-full object-contain pointer-events-none mix-blend-multiply"
-                style={{ opacity: originalOpacity }}
-                alt={`Original Page ${currentPageIndex + 1}`}
-              />
-            )}
-
-            {/* Layer 3: Dynamic Stamp (Only drawn if uploaded & active for this page) */}
-            {documents.stamp && currentStampConfig.enabled && (
-              <div
-                onMouseDown={(e) => handleMouseDown('stamp', e)}
-                onTouchStart={(e) => handleTouchStart('stamp', e)}
-                className={`absolute cursor-move select-none group z-10 touch-none ${
-                  draggingItem === 'stamp' ? 'opacity-80 scale-102 ring-2 ring-teal-500' : 'opacity-100'
-                }`}
-                style={{
-                  left: currentStampConfig.x,
-                  top: currentStampConfig.y,
-                  width: currentStampConfig.size,
-                  height: currentStampConfig.size,
-                }}
-              >
-                <img 
-                  src={documents.stamp} 
-                  className="w-full h-full object-contain drop-shadow-md"
-                  alt="Stamp"
-                />
-                {/* Visual border on hover/drag */}
-                <div className="absolute inset-0 border-2 border-dashed border-amber-500 opacity-60 group-hover:opacity-100 rounded-lg pointer-events-none transition-all" />
-                <div className="absolute top-0 right-0 bg-amber-500 text-white rounded-bl-lg text-[9px] px-1 font-bold pointer-events-none">الختم</div>
-              </div>
-            )}
-
-            {/* Layer 4: Dynamic Signature (Only drawn if uploaded & active for this page) */}
-            {documents.signature && currentSignatureConfig.enabled && (
-              <div
-                onMouseDown={(e) => handleMouseDown('signature', e)}
-                onTouchStart={(e) => handleTouchStart('signature', e)}
-                className={`absolute cursor-move select-none group z-20 touch-none ${
-                  draggingItem === 'signature' ? 'opacity-80 scale-102 ring-2 ring-emerald-500' : 'opacity-100'
-                }`}
-                style={{
-                  left: currentSignatureConfig.x,
-                  top: currentSignatureConfig.y,
-                  width: currentSignatureConfig.size,
-                  height: currentSignatureConfig.size,
-                }}
-              >
-                <img 
-                  src={documents.signature} 
-                  className="w-full h-full object-contain drop-shadow-md"
-                  alt="Signature"
-                />
-                {/* Visual border on hover/drag */}
-                <div className="absolute inset-0 border-2 border-dashed border-emerald-500 opacity-60 group-hover:opacity-100 rounded-lg pointer-events-none transition-all" />
-                <div className="absolute top-0 right-0 bg-emerald-600 text-white rounded-bl-lg text-[9px] px-1 font-bold pointer-events-none font-sans">التوقيع</div>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
- 
-      {/* Controls Sidebar */}
-      <div className="w-full lg:w-80 flex flex-col gap-6">
-        
-        {/* Document Global opacity settings */}
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100">
-          <h3 className="font-bold text-lg text-slate-800 mb-4 border-b border-slate-100 pb-2 flex items-center gap-2">
-            <span>أدوات الملف</span>
-          </h3>
-          
-          {/* Opacity Control */}
-          <div className="mb-4">
-            <label className="text-sm font-medium text-slate-600 mb-2 block flex justify-between">
-              <span>وضوح المستند الأصلي</span>
-              <span className="font-mono text-xs text-teal-600 font-bold">{Math.round(originalOpacity * 100)}%</span>
-            </label>
-            <input 
-              type="range" 
-              min="0" 
-              max="1" 
-              step="0.05"
-              value={originalOpacity}
-              onChange={(e) => setOriginalOpacity(parseFloat(e.target.value))}
-              className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-teal-600"
-            />
-          </div>
-
-          <div className="bg-slate-50 p-3 rounded-lg text-xs text-slate-600 flex items-start gap-2 leading-relaxed">
-            <Sparkles className="w-5 h-5 flex-shrink-0 text-cyan-600" />
-            <p className="font-medium text-[11px]">
-              <span className="text-slate-800 font-bold">ميزة الذكاء الهجينة:</span> يسهل سحب الختم والتوقيع بالإصبع مباشرة على شاشات الجوال لموثوقية لا تضاهى.
-            </p>
-          </div>
-        </div>
-
-        {/* Sync panel switcher */}
-        <div className="bg-white p-5 rounded-xl border border-slate-100 shadow-sm flex flex-col gap-3">
-          <div className="flex flex-col gap-2 p-3 bg-teal-50/50 rounded-xl border border-teal-100/40">
-            <label className="flex items-center gap-3 cursor-pointer select-none">
-              <input 
-                type="checkbox"
-                checked={syncPositions}
-                onChange={(e) => setSyncPositions(e.target.checked)}
-                className="w-4.5 h-4.4 text-teal-600 border-slate-300 rounded focus:ring-teal-500 accent-teal-600 cursor-pointer"
-              />
-              <span className="text-sm font-bold text-slate-800 flex items-center gap-1.5 leading-none">
-                مزامنة موضع ومكان التوثيق
-              </span>
-            </label>
-            <p className="text-[11px] text-slate-500 leading-normal mr-7.5">
-              تثبيت موضع الختم والتوقيع وحجمهما في كافة الصفحات تلقائياً لتكون متطابقة تماماً.
-            </p>
-            {!syncPositions && (
-              <button
-                type="button"
-                onClick={copyCurrentCoordsToAll}
-                className="mt-2 text-xs bg-white hover:bg-slate-50 text-teal-600 border border-slate-200 py-1.5 px-3 rounded-lg font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-              >
-                <Copy size={12} />
-                نسخ موضع هذه الصفحة للجميع
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Sync & Target Stamp selection Section */}
-        {documents.stamp && (
-          <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col gap-4">
-            <h4 className="font-bold text-slate-800 border-b border-slate-100 pb-2 flex items-center gap-1.5">
-              <Stamp size={18} className="text-amber-500" />
-              <span>إعدادات الختم الرقمي</span>
-            </h4>
-
-            {/* Size resize details */}
-            <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-              <label className="text-[11px] font-semibold text-slate-600 mb-2 block flex justify-between">
-                <span>حجم الختم (الحالي)</span>
-                <span className="text-xs bg-slate-200 px-1.5 py-0.5 rounded font-mono font-bold text-teal-700">
-                  {Math.round(currentStampConfig.size)}px
-                </span>
-              </label>
-              <div className="flex items-center gap-2">
-                <ZoomOut size={16} className="text-slate-400" />
-                <input 
-                  type="range" 
-                  min="50" 
-                  max="300" 
-                  value={currentStampConfig.size}
-                  onChange={(e) => handleStampSizeChange(parseInt(e.target.value))}
-                  className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-teal-600"
-                />
-                <ZoomIn size={16} className="text-slate-400" />
-              </div>
-            </div>
-
-            {/* Target Stamp page checkboxes list */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-[11px] font-bold text-slate-600">اختيار صفحات تطبيق الختم:</span>
-                <div className="flex gap-2">
-                  <button 
-                    type="button" 
-                    onClick={enableAllStamps}
-                    className="text-[10px] text-teal-600 hover:underline font-bold bg-none cursor-pointer"
-                  >
-                    الكل
-                  </button>
-                  <span className="text-[10px] text-slate-300">|</span>
-                  <button 
-                    type="button" 
-                    onClick={disableAllStamps}
-                    className="text-[10px] text-red-600 hover:underline font-bold bg-none cursor-pointer"
-                  >
-                    لا أحد
-                  </button>
-                </div>
-              </div>
-
-              {/* Scrollable pages container */}
-              <div className="flex flex-col gap-1.5 max-h-36 overflow-y-auto border border-slate-100 rounded-lg p-2 bg-slate-50/50">
-                {documents.originalPages.map((_, idx) => {
-                  const stampOnThisPage = stampConfigs[idx]?.enabled ?? false;
-                  return (
-                    <div 
-                      key={idx}
-                      onClick={() => togglePageStamp(idx)}
-                      className={`flex items-center justify-between p-1.5 rounded-lg border text-xs transition-all cursor-pointer ${
-                        idx === currentPageIndex 
-                          ? 'bg-teal-50/70 border-teal-200 font-bold' 
-                          : 'bg-white border-transparent hover:bg-slate-100/50'
-                      }`}
-                    >
-                      <span>صفحة {idx + 1}</span>
-                      {stampOnThisPage ? (
-                        <CheckSquare size={14} className="text-emerald-600" />
-                      ) : (
-                        <Square size={14} className="text-slate-300" />
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Sync & Target Signature selection Section */}
-        {documents.signature && (
-          <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col gap-4">
-            <h4 className="font-bold text-slate-800 border-b border-slate-100 pb-2 flex items-center gap-1.5">
-              <PenTool size={18} className="text-emerald-600" />
-              <span>إعدادات التوقيع الإلكتروني</span>
-            </h4>
-
-            {/* Size resize details */}
-            <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-              <label className="text-[11px] font-semibold text-slate-600 mb-2 block flex justify-between">
-                <span>حجم التوقيع (الحالي)</span>
-                <span className="text-xs bg-slate-200 px-1.5 py-0.5 rounded font-mono font-bold text-emerald-700">
-                  {Math.round(currentSignatureConfig.size)}px
-                </span>
-              </label>
-              <div className="flex items-center gap-2">
-                <ZoomOut size={16} className="text-slate-400" />
-                <input 
-                  type="range" 
-                  min="50" 
-                  max="300" 
-                  value={currentSignatureConfig.size}
-                  onChange={(e) => handleSignatureSizeChange(parseInt(e.target.value))}
-                  className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-emerald-600"
-                />
-                <ZoomIn size={16} className="text-slate-400" />
-              </div>
-            </div>
-
-            {/* Target Signature page checkboxes list */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-[11px] font-bold text-slate-600">صفحات وضع التوقيع:</span>
-                <div className="flex gap-2">
-                  <button 
-                    type="button" 
-                    onClick={enableAllSignatures}
-                    className="text-[10px] text-emerald-600 hover:underline font-bold bg-none cursor-pointer"
-                  >
-                    الكل
-                  </button>
-                  <span className="text-[10px] text-slate-300">|</span>
-                  <button 
-                    type="button" 
-                    onClick={disableAllSignatures}
-                    className="text-[10px] text-red-600 hover:underline font-bold bg-none cursor-pointer"
-                  >
-                    لا أحد
-                  </button>
-                </div>
-              </div>
-
-              {/* Scrollable pages container */}
-              <div className="flex flex-col gap-1.5 max-h-36 overflow-y-auto border border-slate-100 rounded-lg p-2 bg-slate-50/50">
-                {documents.originalPages.map((_, idx) => {
-                  const sigOnThisPage = signatureConfigs[idx]?.enabled ?? false;
-                  return (
-                    <div 
-                      key={idx}
-                      onClick={() => togglePageSignature(idx)}
-                      className={`flex items-center justify-between p-1.5 rounded-lg border text-xs transition-all cursor-pointer ${
-                        idx === currentPageIndex 
-                          ? 'bg-emerald-50/70 border-emerald-200 font-bold' 
-                          : 'bg-white border-transparent hover:bg-slate-100/50'
-                      }`}
-                    >
-                      <span>صفحة {idx + 1}</span>
-                      {sigOnThisPage ? (
-                        <CheckSquare size={14} className="text-emerald-600" />
-                      ) : (
-                        <Square size={14} className="text-slate-300" />
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Fallback alerts if stamp & signature are missing */}
-        {!documents.stamp && !documents.signature && (
-          <div className="bg-white p-5 rounded-xl border border-slate-100">
-            <div className="p-4 bg-amber-50 rounded-xl border border-amber-100 text-amber-800 text-xs flex items-start gap-2 leading-relaxed">
-              <AlertCircle className="w-5 h-5 flex-shrink-0 text-amber-600" />
-              <p>لم يتم رفع أي ختم أو توقيع، سيتم تصدير مستنداتك مدمجة بنجاح مع الورقة الرسمية وحفظها كملف PDF نظيف.</p>
-            </div>
-          </div>
-        )}
-
-        {/* Action Buttons */}
-        <div className="flex flex-col gap-3">
-          <button
-            onClick={handleExport}
-            disabled={isExporting}
-            className="flex items-center justify-center gap-2 w-full bg-emerald-600 hover:bg-emerald-700 text-white py-4 rounded-xl font-bold shadow-lg shadow-emerald-200 transition-all active:scale-[0.98] cursor-pointer"
-          >
-            {isExporting ? (
-              <span className="animate-pulse">جاري دمج وتصدير الصفحات...</span>
-            ) : (
-              <>
-                <Download size={20} />
-                تصدير ملف PDF النهائي
-              </>
-            )}
-          </button>
-
-          {isExported && (
+        {/* Multi-page controls */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between w-full max-w-[460px] mb-4 bg-white border border-slate-200 shadow-sm p-2 rounded-2xl">
             <button
-              onClick={() => setShowShareModal(true)}
-              className="flex items-center justify-center gap-2 w-full bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700 text-white py-3.5 rounded-xl font-bold shadow-lg shadow-teal-500/20 transition-all cursor-pointer animate-fade-in"
+              onClick={() => setCurrentPageIndex(p => Math.max(0, p - 1))}
+              disabled={currentPageIndex === 0}
+              className="p-2 text-slate-500 hover:text-slate-900 disabled:opacity-30 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
             >
-              <Share2 size={18} />
-              مشاركة المستند الموثق 📤
+              <ChevronRight size={18} />
+            </button>
+            
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-slate-700">
+                صفحة <span className="text-blue-600 font-mono font-black">{currentPageIndex + 1}</span> من <span className="font-mono">{totalPages}</span>
+              </span>
+            </div>
+
+            <button
+              onClick={() => setCurrentPageIndex(p => Math.min(totalPages - 1, p + 1))}
+              disabled={currentPageIndex === totalPages - 1}
+              className="p-2 text-slate-500 hover:text-slate-900 disabled:opacity-30 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
+            >
+              <ChevronLeft size={18} />
+            </button>
+          </div>
+        )}
+
+        {/* The Live Interactive Canvas Paper */}
+        <div 
+          ref={containerRef}
+          className="relative w-full max-w-[460px] aspect-[210/297] bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-300/80 select-none touch-none"
+        >
+          {/* Template */}
+          {currentPageTemplate && (
+            <img 
+              src={currentPageTemplate} 
+              alt="Official Letterhead" 
+              className="absolute inset-0 w-full h-full object-fill pointer-events-none z-10" 
+            />
+          )}
+
+          {/* Original Document */}
+          {currentPageOriginal && (
+            <img 
+              src={currentPageOriginal} 
+              alt="Document Page" 
+              className="absolute inset-0 w-full h-full object-fill pointer-events-none z-20"
+            />
+          )}
+
+          {/* Draggable Stamp */}
+          {documents.stamp && currentStampConfig.enabled && (
+            <div
+              style={{
+                left: `${currentStampConfig.x}px`,
+                top: `${currentStampConfig.y}px`,
+                width: `${currentStampConfig.size}px`,
+                height: `${currentStampConfig.size}px`,
+              }}
+              onMouseDown={(e) => handleMouseDown('stamp', e)}
+              onTouchStart={(e) => handleTouchStart('stamp', e)}
+              className="absolute z-30 cursor-move border-2 border-dashed border-blue-500 hover:border-blue-600 rounded-xl p-1 bg-blue-500/10 hover:bg-blue-500/20 transition-colors shadow-lg active:scale-95 flex items-center justify-center group"
+            >
+              <img 
+                src={documents.stamp} 
+                alt="Stamp" 
+                className="w-full h-full object-contain pointer-events-none" 
+              />
+              <div className="absolute -top-2 -right-2 bg-blue-600 text-white p-1 rounded-full text-[9px] font-black shadow-sm">
+                ختم
+              </div>
+            </div>
+          )}
+
+          {/* Draggable Signature */}
+          {documents.signature && currentSignatureConfig.enabled && (
+            <div
+              style={{
+                left: `${currentSignatureConfig.x}px`,
+                top: `${currentSignatureConfig.y}px`,
+                width: `${currentSignatureConfig.size}px`,
+                height: `${currentSignatureConfig.size}px`,
+              }}
+              onMouseDown={(e) => handleMouseDown('signature', e)}
+              onTouchStart={(e) => handleTouchStart('signature', e)}
+              className="absolute z-30 cursor-move border-2 border-dashed border-indigo-500 hover:border-indigo-600 rounded-xl p-1 bg-indigo-500/10 hover:bg-indigo-500/20 transition-colors shadow-lg active:scale-95 flex items-center justify-center group"
+            >
+              <img 
+                src={documents.signature} 
+                alt="Signature" 
+                className="w-full h-full object-contain pointer-events-none" 
+              />
+              <div className="absolute -top-2 -right-2 bg-indigo-600 text-white p-1 rounded-full text-[9px] font-black shadow-sm">
+                توقيع
+              </div>
+            </div>
+          )}
+        </div>
+
+        <p className="text-xs text-slate-500 mt-3 flex items-center gap-1.5 font-bold">
+          <Sparkles size={14} className="text-blue-600 shrink-0" />
+          <span>اسحب الختم والتوقيع بإصبعك أو بالفأرة للمكان المطلوب مباشرة على الصفحة.</span>
+        </p>
+      </div>
+
+      {/* Control Cards */}
+      <div className="w-full lg:w-96 flex flex-col gap-4">
+        
+        {/* Sync Settings */}
+        <div className="bg-white border border-slate-200/90 p-5 rounded-3xl shadow-sm flex flex-col gap-2.5">
+          <label className="flex items-center gap-3 cursor-pointer select-none">
+            <input 
+              type="checkbox"
+              checked={syncPositions}
+              onChange={(e) => setSyncPositions(e.target.checked)}
+              className="w-4.5 h-4.5 text-blue-600 border-slate-300 rounded accent-blue-600 cursor-pointer"
+            />
+            <span className="text-xs font-bold text-slate-800">
+              مزامنة الموضع والحجم في كافة الصفحات
+            </span>
+          </label>
+          <p className="text-[11px] text-slate-500 leading-relaxed mr-7.5">
+            تثبيت مكان الختم والتوقيع تلقائياً في كل الصفحات لتكون متطابقة بدقة.
+          </p>
+        </div>
+
+        {/* Stamp Size */}
+        {documents.stamp && (
+          <div className="bg-white border border-slate-200/90 p-5 rounded-3xl shadow-sm flex flex-col gap-3">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
+              <span className="text-xs font-bold text-slate-800 flex items-center gap-2">
+                <Stamp size={16} className="text-blue-600" />
+                <span>حجم الختم</span>
+              </span>
+              <span className="text-xs font-mono font-bold text-blue-700 bg-blue-50 border border-blue-100 px-2 py-0.5 rounded-md">
+                {Math.round(currentStampConfig.size)}px
+              </span>
+            </div>
+            <div className="flex items-center gap-2 pt-1">
+              <ZoomOut size={15} className="text-slate-400" />
+              <input 
+                type="range" 
+                min="50" 
+                max="280" 
+                value={currentStampConfig.size}
+                onChange={(e) => handleStampSizeChange(parseInt(e.target.value))}
+                className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+              />
+              <ZoomIn size={15} className="text-slate-400" />
+            </div>
+          </div>
+        )}
+
+        {/* Signature Size */}
+        {documents.signature && (
+          <div className="bg-white border border-slate-200/90 p-5 rounded-3xl shadow-sm flex flex-col gap-3">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
+              <span className="text-xs font-bold text-slate-800 flex items-center gap-2">
+                <PenTool size={16} className="text-indigo-600" />
+                <span>حجم التوقيع</span>
+              </span>
+              <span className="text-xs font-mono font-bold text-indigo-700 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-md">
+                {Math.round(currentSignatureConfig.size)}px
+              </span>
+            </div>
+            <div className="flex items-center gap-2 pt-1">
+              <ZoomOut size={15} className="text-slate-400" />
+              <input 
+                type="range" 
+                min="50" 
+                max="280" 
+                value={currentSignatureConfig.size}
+                onChange={(e) => handleSignatureSizeChange(parseInt(e.target.value))}
+                className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+              />
+              <ZoomIn size={15} className="text-slate-400" />
+            </div>
+          </div>
+        )}
+
+        {/* PRIMARY ACTION BUTTONS */}
+        <div className="flex flex-col gap-3 mt-1">
+          {!isExported ? (
+            <button
+              onClick={handleExport}
+              disabled={isExporting}
+              className="flex items-center justify-center gap-2.5 w-full bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-500 hover:to-indigo-600 text-white py-4 px-6 rounded-2xl font-black text-sm shadow-lg shadow-blue-600/20 transition-all hover:scale-[1.01] active:scale-[0.98] cursor-pointer"
+            >
+              {isExporting ? (
+                <span className="animate-pulse">جاري دمج وتوثيق الملف...</span>
+              ) : (
+                <>
+                  <FileCheck size={20} />
+                  <span>توثيق المستند وتصديره</span>
+                </>
+              )}
+            </button>
+          ) : (
+            /* COMPLETION STATE BUTTONS: EXACTLY "مشاركة" + UNDERNEATH "البدء من جديد" */
+            <div className="flex flex-col gap-3 animate-fade-in-up">
+              
+              {/* 1. Share Button */}
+              <button
+                onClick={handleShareClick}
+                className="flex items-center justify-center gap-2.5 w-full bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-500 hover:to-indigo-600 text-white py-4 px-6 rounded-2xl font-black text-sm shadow-xl shadow-blue-600/25 transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+              >
+                <Share2 size={20} />
+                <span>مشاركة المستند</span>
+              </button>
+
+              {/* 2. Start Over Button (keeps files without deleting them) */}
+              <button
+                onClick={onReset}
+                className="flex items-center justify-center gap-2 w-full bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 py-3.5 px-6 rounded-2xl font-bold text-xs transition-all cursor-pointer shadow-xs"
+              >
+                <RefreshCcw size={15} />
+                <span>البدء من جديد</span>
+              </button>
+
+            </div>
+          )}
+
+          {!isExported && (
+            <button
+              onClick={onReset}
+              className="flex items-center justify-center gap-2 w-full bg-slate-100 hover:bg-slate-200 text-slate-600 py-3 rounded-2xl font-bold text-xs transition-colors cursor-pointer"
+            >
+              <span>العودة لتعديل الملفات</span>
             </button>
           )}
-          
-          <button
-            onClick={onReset}
-            className="flex items-center justify-center gap-2 w-full bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 py-3 rounded-xl font-medium transition-colors cursor-pointer"
-          >
-            <RefreshCcw size={18} />
-            أبدأ من جديد
-          </button>
         </div>
 
       </div>
 
       {/* Share Modal */}
       {showShareModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in" dir="rtl">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-2xl flex flex-col gap-6 relative">
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in" dir="rtl">
+          <div className="bg-white border border-slate-200 rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-2xl flex flex-col gap-6 relative animate-scale-in text-right">
             <button 
               onClick={() => setShowShareModal(false)}
-              className="absolute top-5 left-5 text-slate-400 hover:text-slate-700 p-2 rounded-full bg-slate-100 transition-colors cursor-pointer"
+              className="absolute top-5 left-5 text-slate-400 hover:text-slate-600 p-2 rounded-full bg-slate-100 hover:bg-slate-200 transition-colors cursor-pointer"
             >
               <X size={18} />
             </button>
 
             <div className="flex items-center gap-3.5">
-              <div className="w-12 h-12 rounded-2xl bg-teal-100 text-teal-600 flex items-center justify-center shrink-0">
+              <div className="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-200 text-blue-600 flex items-center justify-center shrink-0">
                 <Share2 size={24} />
               </div>
               <div>
-                <h3 className="text-xl font-black text-slate-900">تم توثيق المستند بنجاح!</h3>
-                <p className="text-xs text-slate-500 mt-0.5">جاهز الآن للحفظ أو الإرسال المباشر عبر واتساب</p>
+                <h3 className="text-lg font-black text-slate-900">مشاركة المستند الموثق</h3>
+                <p className="text-xs text-slate-500 mt-0.5">الملف جاهز للإرسال المباشر أو التحميل الفوري</p>
               </div>
             </div>
 
             <div className="flex flex-col gap-3">
               <button
                 onClick={handleWhatsAppShare}
-                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3.5 px-4 rounded-2xl transition-all shadow-md shadow-emerald-600/20 flex items-center justify-center gap-3 cursor-pointer"
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-3.5 px-4 rounded-2xl transition-all shadow-md shadow-blue-600/20 flex items-center justify-center gap-3 cursor-pointer text-xs"
               >
-                <MessageCircle size={20} />
-                <span>إرسال عبر واتساب (دايركت) 📲</span>
+                <MessageCircle size={18} />
+                <span>إرسال ومشاركة عبر واتساب 📲</span>
               </button>
 
               <button
                 onClick={handleDownloadFile}
-                className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-3.5 px-4 rounded-2xl transition-all shadow-md flex items-center justify-center gap-3 cursor-pointer"
+                className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-3.5 px-4 rounded-2xl transition-all shadow-md flex items-center justify-center gap-3 cursor-pointer text-xs"
               >
-                <Download size={20} />
-                <span>حفظ الملف على الجهاز 📥</span>
+                <Download size={18} />
+                <span>حفظ نسخة PDF على الجهاز 📥</span>
               </button>
             </div>
 
             <div className="text-center pt-2 border-t border-slate-100">
               <button
                 onClick={() => setShowShareModal(false)}
-                className="text-xs font-bold text-slate-500 hover:text-slate-700 py-2 cursor-pointer"
+                className="text-xs font-bold text-slate-500 hover:text-slate-800 py-1 cursor-pointer"
               >
                 إغلاق النافذة
               </button>
@@ -994,7 +656,6 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset }) => {
         </div>
       )}
 
-      {/* Hidden Canvas for Processing */}
       <canvas ref={canvasRef} className="hidden" />
     </div>
   );

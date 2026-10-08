@@ -7,20 +7,19 @@ interface SignaturePadProps {
 }
 
 const COLORS = [
-  { id: 'darkblue', value: '#1e3a8a', label: 'أزرق داكن' },
-  { id: 'black', value: '#0f172a', label: 'أسود' },
-  { id: 'blue', value: '#2563eb', label: 'أزرق ملكي' },
-  { id: 'red', value: '#dc2626', label: 'أحمر' },
+  { id: 'darkblue', value: '#1e3a8a', label: 'أزرق داكن (حبر رسمي)' },
+  { id: 'black', value: '#0f172a', label: 'أسود كربوني' },
+  { id: 'royalblue', value: '#2563eb', label: 'أزرق ملكي' },
+  { id: 'red', value: '#991b1b', label: 'أحمر معتمد' },
 ];
 
 const SignaturePad: React.FC<SignaturePadProps> = ({ onSave, onClose }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
-  const [activeColor, setActiveColor] = useState('#1e3a8a'); // Default professional dark blue ink
+  const [activeColor, setActiveColor] = useState('#1e3a8a');
   const [lineWidth, setLineWidth] = useState(3.5);
   const [hasDrawn, setHasDrawn] = useState(false);
 
-  // Initialize Canvas with proper high-DPI scaling
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -34,7 +33,6 @@ const SignaturePad: React.FC<SignaturePadProps> = ({ onSave, onClose }) => {
     ctx.lineWidth = lineWidth;
   }, [activeColor, lineWidth]);
 
-  // Native Touch Handlers to strictly prevent viewport scroll/bounce-back when drawing on mobile
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -42,9 +40,7 @@ const SignaturePad: React.FC<SignaturePadProps> = ({ onSave, onClose }) => {
     let drawing = false;
 
     const handleStart = (e: TouchEvent) => {
-      // Strongly halt standard mobile elastic scrolling or viewport movement
       e.preventDefault();
-      
       const rect = canvas.getBoundingClientRect();
       const scaleX = canvas.width / rect.width;
       const scaleY = canvas.height / rect.height;
@@ -90,7 +86,6 @@ const SignaturePad: React.FC<SignaturePadProps> = ({ onSave, onClose }) => {
       setIsDrawing(false);
     };
 
-    // Use { passive: false } natively to overcome passive event listener limitations of React/Safari
     canvas.addEventListener('touchstart', handleStart, { passive: false });
     canvas.addEventListener('touchmove', handleMove, { passive: false });
     canvas.addEventListener('touchend', handleEnd, { passive: false });
@@ -165,53 +160,52 @@ const SignaturePad: React.FC<SignaturePadProps> = ({ onSave, onClose }) => {
     const canvas = canvasRef.current;
     if (!canvas || !hasDrawn) return;
 
-    // Direct save with transparent background
     const dataUrl = canvas.toDataURL('image/png');
     onSave(dataUrl);
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-fade-in text-right" dir="rtl">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-100 flex flex-col">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-md p-4 animate-fade-in text-right" dir="rtl">
+      <div className="bg-white border border-slate-200 rounded-3xl shadow-2xl max-w-lg w-full overflow-hidden flex flex-col animate-scale-in">
         
         {/* Header */}
-        <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-          <div className="flex items-center gap-2.5">
-            <div className="bg-emerald-100 p-2 rounded-lg text-emerald-700">
+        <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/70">
+          <div className="flex items-center gap-3">
+            <div className="bg-blue-100 p-2.5 rounded-2xl text-blue-700">
               <PenTool size={20} />
             </div>
             <div>
-              <h3 className="font-bold text-slate-800 text-base">منصّة التوقيع الإلكتروني الحيّة</h3>
-              <p className="text-slate-500 text-xs">ارسم توقيعك الشخصي بشكل حر لإدراجه على المستند</p>
+              <h3 className="font-black text-slate-900 text-base">منصّة التوقيع الحيّ</h3>
+              <p className="text-slate-500 text-xs mt-0.5">ارسم توقيعك بدقة عالية وبخلفية شفافة</p>
             </div>
           </div>
           <button 
             type="button" 
             onClick={onClose}
-            className="p-1.5 hover:bg-slate-200/60 rounded-full text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+            className="p-2 hover:bg-slate-200/70 rounded-full text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
           >
-            <X size={20} />
+            <X size={18} />
           </button>
         </div>
 
-        {/* Ink Colors & Line width controls */}
-        <div className="px-5 py-4 bg-white border-b border-slate-100 flex flex-wrap items-center justify-between gap-4">
+        {/* Ink Colors & Line width */}
+        <div className="px-5 py-3.5 bg-white border-b border-slate-100 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-slate-500">لون الحبر:</span>
-            <div className="flex gap-1.5">
+            <span className="text-xs font-bold text-slate-600">لون الحبر:</span>
+            <div className="flex gap-2">
               {COLORS.map((color) => (
                 <button
                   key={color.id}
                   type="button"
                   onClick={() => setActiveColor(color.value)}
                   className={`w-7 h-7 rounded-full border-2 transition-all flex items-center justify-center cursor-pointer ${
-                    activeColor === color.value ? 'border-indigo-600 scale-110 shadow-sm' : 'border-slate-200 hover:scale-105'
+                    activeColor === color.value ? 'border-blue-600 scale-110 shadow-sm' : 'border-slate-200 hover:scale-105'
                   }`}
                   style={{ backgroundColor: color.value }}
                   title={color.label}
                 >
                   {activeColor === color.value && (
-                    <Check size={12} className="text-white" />
+                    <Check size={13} className="text-white" />
                   )}
                 </button>
               ))}
@@ -219,15 +213,15 @@ const SignaturePad: React.FC<SignaturePadProps> = ({ onSave, onClose }) => {
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-slate-500">سُمك الخط:</span>
-            <div className="flex gap-1 bg-slate-100 p-1 rounded-lg">
+            <span className="text-xs font-bold text-slate-600">السُّمك:</span>
+            <div className="flex gap-1 bg-slate-100 p-1 rounded-xl">
               {[2, 3.5, 5].map((width) => (
                 <button
                   key={width}
                   type="button"
                   onClick={() => setLineWidth(width)}
-                  className={`px-2.5 py-1 text-xs font-bold rounded-md transition-colors cursor-pointer ${
-                    lineWidth === width ? 'bg-white text-slate-800 shadow-xs' : 'text-slate-400 hover:text-slate-700'
+                  className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
+                    lineWidth === width ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-800'
                   }`}
                 >
                   {width === 2 ? 'رفيع' : width === 5 ? 'عريض' : 'متوسط'}
@@ -239,7 +233,7 @@ const SignaturePad: React.FC<SignaturePadProps> = ({ onSave, onClose }) => {
 
         {/* Canvas Area */}
         <div className="p-5 bg-slate-50/50 flex flex-col items-center">
-          <div className="relative w-full aspect-[16/9] max-h-56 bg-white border-2 border-dashed border-slate-300 rounded-xl overflow-hidden cursor-crosshair shadow-inner">
+          <div className="relative w-full aspect-[16/9] max-h-56 bg-white border-2 border-dashed border-slate-300 rounded-2xl overflow-hidden cursor-crosshair shadow-inner">
             <canvas
               ref={canvasRef}
               width={500}
@@ -251,33 +245,32 @@ const SignaturePad: React.FC<SignaturePadProps> = ({ onSave, onClose }) => {
               className="w-full h-full bg-transparent touch-none"
             />
             
-            {/* Drawing assistance text */}
             {!hasDrawn && (
               <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none text-slate-400 gap-2">
-                <span className="text-sm font-medium">ارسم توقيعك هنا بإصبعك أو بالفأرة</span>
-                <span className="text-xs text-slate-300">يتم التصدير بخلفية شفافة عالية الدقة تلقائياً</span>
+                <span className="text-sm font-bold text-slate-500">ارسم توقيعك هنا بإصبعك أو بالفأرة</span>
+                <span className="text-xs text-slate-400">يتم التثبيت بخلفية مفرغة شفافة تلقائياً</span>
               </div>
             )}
           </div>
         </div>
 
         {/* Footer actions */}
-        <div className="p-5 border-t border-slate-100 flex items-center justify-between bg-slate-50/50">
+        <div className="p-5 border-t border-slate-100 flex items-center justify-between bg-slate-50/70">
           <button
             type="button"
             onClick={clearCanvas}
             disabled={!hasDrawn}
-            className="flex items-center gap-1.5 px-3.5 py-2 border border-slate-200 hover:bg-slate-100 disabled:opacity-45 disabled:hover:bg-transparent text-slate-700 font-bold text-xs rounded-xl transition-all cursor-pointer"
+            className="flex items-center gap-1.5 px-3.5 py-2 border border-slate-200 hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-transparent text-slate-700 font-bold text-xs rounded-xl transition-all cursor-pointer"
           >
             <RefreshCw size={14} />
-            إعادة المسح والبدء مجدداً
+            <span>مسح والبدء مجدداً</span>
           </button>
 
           <div className="flex gap-2">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-slate-600 hover:bg-slate-100 font-medium text-xs rounded-xl transition-all cursor-pointer"
+              className="px-4 py-2 text-slate-500 hover:text-slate-800 font-bold text-xs rounded-xl transition-all cursor-pointer"
             >
               إلغاء
             </button>
@@ -285,9 +278,9 @@ const SignaturePad: React.FC<SignaturePadProps> = ({ onSave, onClose }) => {
               type="button"
               onClick={handleSave}
               disabled={!hasDrawn}
-              className="flex items-center gap-1.5 px-6 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:hover:bg-emerald-600 font-bold text-xs text-white rounded-xl shadow-md shadow-emerald-100 transition-all cursor-pointer"
+              className="flex items-center gap-1.5 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white font-black text-xs rounded-xl shadow-md shadow-blue-600/20 transition-all cursor-pointer"
             >
-              حفظ وتثبيت التوقيع
+              <span>اعتماد التوقيع</span>
             </button>
           </div>
         </div>

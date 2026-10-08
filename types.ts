@@ -16,11 +16,13 @@ export interface StampPosition {
 
 export enum Step {
   LANDING = 'LANDING',
+  ABOUT = 'ABOUT',
   AUTH = 'AUTH',
+  SURVEY = 'SURVEY',
   UPLOAD = 'UPLOAD',
   EDITOR = 'EDITOR',
   ACCOUNT = 'ACCOUNT',
-  ADMIN_USERS = 'ADMIN_USERS'
+  ASSETS = 'ASSETS'
 }
 
 export type ThemePreference = 'default-light' | 'space-dark' | 'snap-yellow';
@@ -29,6 +31,14 @@ export interface SavedAssets {
   template: string | null;
   stamp: string | null;
   signature: string | null;
+}
+
+export interface SurveyData {
+  howDidYouHear: string;
+  dob: string;
+  phone: string;
+  usageType: string;
+  completedAt: string;
 }
 
 export interface User {
@@ -46,6 +56,8 @@ export interface User {
   lastLoginAt?: string;
   theme: ThemePreference;
   savedAssets: SavedAssets;
+  surveyCompleted?: boolean;
+  surveyData?: SurveyData;
 }
 
 export interface SystemStats {
