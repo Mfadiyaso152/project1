@@ -18,7 +18,14 @@ import { LandingView } from './components/LandingView';
 import { AuthFlow } from './components/AuthFlow';
 import { AccountView } from './components/AccountView';
 import { DocumentState, Step, User } from './types';
-import { getCurrentUser, setCurrentUser, canUserProcessFile, saveUserAsset, getUserAsset } from './authService';
+import { 
+  getCurrentUser, 
+  setCurrentUser, 
+  canUserProcessFile, 
+  saveUserAsset, 
+  getUserAsset,
+  fetchUserFromFirestoreByEmail 
+} from './authService';
 
 const App: React.FC = () => {
   const [currentUser, setUser] = useState<User | null>(() => getCurrentUser());
@@ -46,11 +53,31 @@ const App: React.FC = () => {
     setTimeout(() => setNotification(null), 3500);
   };
 
-  const refreshUser = () => {
-    setUser(getCurrentUser());
+  const refreshUser = async () => {
+    const local = getCurrentUser();
+    if (local?.email) {
+      const cloud = await fetchUserFromFirestoreByEmail(local.email);
+      if (cloud) {
+        setUser(cloud);
+        return;
+      }
+    }
+    setUser(local);
   };
 
   useEffect(() => {
+    // Initial cloud sync on mount
+    const initialSync = async () => {
+      const u = getCurrentUser();
+      if (u?.email) {
+        const cloudUser = await fetchUserFromFirestoreByEmail(u.email);
+        if (cloudUser) {
+          setUser(cloudUser);
+        }
+      }
+    };
+    initialSync();
+
     const interval = setInterval(() => {
       const fresh = getCurrentUser();
       if (fresh) {
@@ -193,13 +220,23 @@ const App: React.FC = () => {
     else setDocs(prev => ({ ...prev, [type]: null }));
   };
 
-  const handleUseSavedAsset = (type: 'template' | 'stamp' | 'signature') => {
+  const handleUseSavedAsset = async (type: 'template' | 'stamp' | 'signature') => {
     if (!currentUser) {
       showToast('يرجى تسجيل الدخول أولاً لاستخدام الملفات المحفوظة', 'info');
       return;
     }
 
-    const savedData = getUserAsset(type, currentUser);
+    let savedData = getUserAsset(type, currentUser);
+
+    // If not found in current memory, query Firestore directly as fallback
+    if (!savedData && currentUser.email) {
+      const freshUser = await fetchUserFromFirestoreByEmail(currentUser.email);
+      if (freshUser) {
+        setUser(freshUser);
+        savedData = getUserAsset(type, freshUser);
+      }
+    }
+
     if (savedData) {
       if (type === 'template') {
         setDocs(prev => ({

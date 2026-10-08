@@ -19,9 +19,9 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({ onSuccess, onCancel }) => {
 
   const currentDomain = typeof window !== 'undefined' ? window.location.hostname : '';
 
-  const completeUserLogin = (email: string, name: string, avatar?: string, sub?: string) => {
+  const completeUserLogin = async (email: string, name: string, avatar?: string, sub?: string) => {
     setIsLoading(true);
-    const res = loginWithGoogle({
+    const res = await loginWithGoogle({
       email,
       name,
       avatar,

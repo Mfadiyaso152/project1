@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   ArrowLeft, 
   User as UserIcon, 
@@ -17,7 +17,7 @@ import {
   Check
 } from 'lucide-react';
 import { User } from '../types';
-import { saveUserAsset, getUserAsset, setCurrentUser } from '../authService';
+import { saveUserAsset, getUserAsset, setCurrentUser, fetchUserFromFirestoreByEmail } from '../authService';
 import SignaturePad from './SignaturePad';
 
 interface AccountViewProps {
@@ -66,6 +66,19 @@ export const AccountView: React.FC<AccountViewProps> = ({
   const [isDrawingSignature, setIsDrawingSignature] = useState(false);
   const [savingType, setSavingType] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Sync latest cloud assets on mount
+  useEffect(() => {
+    const syncAssets = async () => {
+      if (currentUser?.email) {
+        const freshUser = await fetchUserFromFirestoreByEmail(currentUser.email);
+        if (freshUser) {
+          onUpdate();
+        }
+      }
+    };
+    syncAssets();
+  }, [currentUser?.email]);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -189,12 +202,17 @@ export const AccountView: React.FC<AccountViewProps> = ({
 
         {/* SAVED ASSETS (الأصول المحفوظة في السيرفر) */}
         <div className="bg-white border border-slate-200/90 rounded-3xl p-6 sm:p-8 shadow-sm flex flex-col gap-6">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-100 pb-4 gap-2">
             <div className="flex items-center gap-2.5">
               <div className="w-2.5 h-6 bg-gradient-to-b from-blue-600 to-indigo-600 rounded-full" />
               <div>
                 <h2 className="text-lg font-black text-slate-900">الأصول المحفوظة في السيرفر</h2>
               </div>
+            </div>
+
+            <div className="flex items-center gap-1.5 text-[11px] font-bold text-blue-700 bg-blue-50 border border-blue-200/60 px-3 py-1 rounded-full w-fit">
+              <Cloud size={13} />
+              <span>مربوطة بحسابك سحابياً وتظهر تلقائياً في أي جهاز</span>
             </div>
           </div>
 

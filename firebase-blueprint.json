@@ -27,12 +27,29 @@
         }
       },
       "required": ["email", "name"]
+    },
+    "UserAsset": {
+      "title": "UserAsset",
+      "description": "Stores individual persistent assets (official paper, stamp, signature) tied to a user account",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "type": { "type": "string", "enum": ["template", "stamp", "signature"] },
+        "data": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["userId", "type", "data"]
     }
   },
   "firestore": {
     "/users/{userId}": {
       "schema": "User",
-      "description": "Stores user profiles and persistent saved assets (letterhead, stamp, signature)"
+      "description": "Stores user profiles and cached references"
+    },
+    "/users/{userId}/assets/{assetId}": {
+      "schema": "UserAsset",
+      "description": "Stores persistent user assets across all devices and browsers"
     }
   }
 }

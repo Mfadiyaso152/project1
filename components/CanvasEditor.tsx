@@ -24,9 +24,7 @@ import {
   FilePlus,
   Layers,
   RotateCcw,
-  CheckCircle2,
-  Eye,
-  EyeOff
+  CheckCircle2
 } from 'lucide-react';
 
 interface CanvasEditorProps {
@@ -588,21 +586,7 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset, onStart
               </div>
             </div>
           )}
-
-          {/* Helper overlay badge if neither is enabled on this page */}
-          {(!currentStampConfig.enabled && !currentSignatureConfig.enabled) && (
-            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 bg-slate-900/80 backdrop-blur-sm text-white px-3.5 py-1.5 rounded-full text-[11px] font-bold shadow-md flex items-center gap-2 pointer-events-none animate-fade-in">
-              <EyeOff size={13} className="text-amber-400" />
-              <span>الختم والتوقيع معطلان في هذه الصفحة</span>
-            </div>
-          )}
         </div>
-
-        {/* Drag Helper Tip */}
-        <p className="text-xs text-slate-500 mt-3 flex items-center gap-1.5 font-bold">
-          <Sparkles size={14} className="text-blue-600 shrink-0" />
-          <span>اسحب الختم والتوقيع بإصبعك أو بالفأرة للمكان المطلوب مباشرة على الصفحة.</span>
-        </p>
       </div>
 
       {/* Control Cards Sidebar */}
@@ -789,7 +773,7 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset, onStart
         )}
 
         {/* Sync Settings */}
-        <div className="bg-white border border-slate-200/90 p-4.5 rounded-3xl shadow-sm flex flex-col gap-2">
+        <div className="bg-white border border-slate-200/90 p-4.5 rounded-3xl shadow-sm flex items-center justify-between">
           <label className="flex items-center gap-3 cursor-pointer select-none">
             <input 
               type="checkbox" 
@@ -801,9 +785,6 @@ const CanvasEditor: React.FC<CanvasEditorProps> = ({ documents, onReset, onStart
               مزامنة الموضع والحجم في كافة الصفحات
             </span>
           </label>
-          <p className="text-[11px] text-slate-500 leading-relaxed mr-7.5">
-            تثبيت موضع الختم والتوقيع تلقائياً في الصفحات المحددة لتكون متطابقة بدقة.
-          </p>
         </div>
 
         {/* PRIMARY ACTION BUTTONS */}
