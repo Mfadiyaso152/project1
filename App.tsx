@@ -124,7 +124,7 @@ const App: React.FC = () => {
               canvas.height = viewport.height;
               canvas.width = viewport.width;
               await page.render({ canvasContext: context, viewport: viewport }).promise;
-              pageImages.push(canvas.toDataURL('image/jpeg', 0.9));
+              pageImages.push(canvas.toDataURL('image/png'));
             }
           }
           resolve(pageImages);
