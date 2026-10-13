@@ -16,6 +16,14 @@ service cloud.firestore {
       match /assets/{assetId} {
         allow read, write: if true;
       }
+
+      match /documents/{docId} {
+        allow read, write: if true;
+
+        match /chunks/{chunkId} {
+          allow read, write: if true;
+        }
+      }
     }
 
     match /{document=**} {

@@ -9,7 +9,9 @@ import {
   BookmarkCheck,
   User as UserIcon,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Cloud,
+  FolderOpen
 } from 'lucide-react';
 import FileUpload from './components/FileUpload';
 import CanvasEditor from './components/CanvasEditor';
@@ -74,26 +76,46 @@ const App: React.FC = () => {
         const cloudUser = await fetchUserFromFirestoreByEmail(u.email);
         if (cloudUser) {
           setUser(cloudUser);
+          // Pre-populate saved assets if docs are empty
+          setDocs(prev => {
+            const next = { ...prev };
+            let changed = false;
+            if (!next.template && cloudUser.savedAssets?.template) {
+              next.template = cloudUser.savedAssets.template;
+              next.templatePages = [cloudUser.savedAssets.template];
+              changed = true;
+            }
+            if (!next.stamp && cloudUser.savedAssets?.stamp) {
+              next.stamp = cloudUser.savedAssets.stamp;
+              changed = true;
+            }
+            if (!next.signature && cloudUser.savedAssets?.signature) {
+              next.signature = cloudUser.savedAssets.signature;
+              changed = true;
+            }
+            return changed ? next : prev;
+          });
         }
       }
     };
     initialSync();
-
-    const interval = setInterval(() => {
-      const fresh = getCurrentUser();
-      if (fresh) {
-        setUser(fresh);
-      }
-    }, 5000);
-    return () => clearInterval(interval);
   }, []);
 
   // Real-time Firestore sync: updates assets across devices instantly
   useEffect(() => {
     if (!currentUser?.email) return;
-    const unsubscribe = subscribeToUserAssets(currentUser.email, (assets) => {
+
+    const email = currentUser.email;
+    const unsubscribe = subscribeToUserAssets(email, (assets) => {
       setUser(prev => {
         if (!prev) return null;
+        const oldAssets = prev.savedAssets;
+        const isSame = 
+          oldAssets?.template === assets.template &&
+          oldAssets?.stamp === assets.stamp &&
+          oldAssets?.signature === assets.signature;
+          
+        if (isSame) return prev;
         return {
           ...prev,
           savedAssets: assets
@@ -123,6 +145,7 @@ const App: React.FC = () => {
             if (context) {
               canvas.height = viewport.height;
               canvas.width = viewport.width;
+              context.clearRect(0, 0, canvas.width, canvas.height);
               await page.render({ canvasContext: context, viewport: viewport }).promise;
               pageImages.push(canvas.toDataURL('image/png'));
             }
@@ -286,9 +309,9 @@ const App: React.FC = () => {
     try {
       const updated = await saveUserAsset(type, currentAsset, currentUser);
       setUser(updated);
-      showToast(`تم حفظ ${type === 'template' ? 'الورقة الرسمية' : type === 'stamp' ? 'الختم' : 'التوقيع'} في Firebase وربطه بحسابك بنجاح ✅`);
+      showToast(`تم حفظ ${type === 'template' ? 'الورقة الرسمية' : type === 'stamp' ? 'الختم' : 'التوقيع'} وربطه بحسابك بنجاح ✅`);
     } catch (e: any) {
-      showToast('خطأ أثناء الحفظ في السيرفر: ' + (e?.message || e), 'error');
+      showToast('خطأ أثناء الحفظ: ' + (e?.message || e), 'error');
     }
   };
 
@@ -416,27 +439,27 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* Toast Notification */}
+      {/* Toast Notification - Centered at Top with Modern Motion */}
       {notification && (
-        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 animate-fade-in-up">
-          <div className={`px-5 py-3 rounded-2xl shadow-2xl backdrop-blur-xl border text-xs font-black flex items-center gap-2.5 ${
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 animate-toast-drop pointer-events-none">
+          <div className={`px-5 py-3 rounded-2xl shadow-2xl backdrop-blur-2xl border text-xs font-black flex items-center gap-3 ${
             notification.type === 'error'
-              ? 'bg-rose-50 text-rose-800 border-rose-200 shadow-rose-900/10'
+              ? 'bg-rose-950/90 text-rose-100 border-rose-500/30 shadow-rose-950/30'
               : notification.type === 'info'
-              ? 'bg-amber-50 text-amber-900 border-amber-200 shadow-amber-900/10'
-              : 'bg-blue-50 text-blue-900 border-blue-200 shadow-blue-900/10'
+              ? 'bg-amber-950/90 text-amber-100 border-amber-500/30 shadow-amber-950/30'
+              : 'bg-slate-900/90 text-white border-blue-500/30 shadow-blue-950/30'
           }`}>
-            <CheckCircle2 size={16} className={notification.type === 'error' ? 'text-rose-600' : notification.type === 'info' ? 'text-amber-600' : 'text-blue-600'} />
-            <span>{notification.msg}</span>
+            <CheckCircle2 size={18} className={notification.type === 'error' ? 'text-rose-400' : notification.type === 'info' ? 'text-amber-400' : 'text-emerald-400'} />
+            <span className="tracking-wide">{notification.msg}</span>
           </div>
         </div>
       )}
 
-      {/* Profile Picture / Account Button (Clicking navigates to dedicated Account page) */}
-      <div className="absolute top-5 left-6 z-40">
+      {/* Top Bar: Profile Button */}
+      <div className="absolute top-5 left-6 z-40 flex items-center gap-2.5">
         <button
           onClick={() => setStep(Step.ACCOUNT)}
-          className="flex items-center gap-2.5 bg-white/90 hover:bg-white border border-slate-200/90 hover:border-blue-500/40 px-3.5 py-1.5 rounded-full shadow-xs hover:shadow-sm backdrop-blur-md transition-all cursor-pointer group"
+          className="flex items-center gap-2 bg-white/95 hover:bg-white active:bg-slate-100 border border-slate-200/90 hover:border-blue-400 px-3.5 py-1.5 rounded-full shadow-xs hover:shadow-md backdrop-blur-md transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 active:scale-95 cursor-pointer group"
           title="عرض الحساب والأصول المحفوظة"
         >
           {currentUser?.avatar ? (
@@ -446,7 +469,7 @@ const App: React.FC = () => {
               <UserIcon size={14} />
             </div>
           )}
-          <span className="text-xs font-bold text-slate-700 group-hover:text-slate-900">
+          <span className="text-xs font-bold text-slate-700 group-hover:text-blue-600 transition-colors">
             {currentUser?.name || 'حسابي'}
           </span>
         </button>

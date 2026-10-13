@@ -8,8 +8,9 @@ import {
   deleteDoc, 
   onSnapshot 
 } from 'firebase/firestore';
-import { db } from './firebase';
-import { User, SystemStats, SavedAssets } from './types';
+import { signInWithPopup } from 'firebase/auth';
+import { db, auth, googleProvider } from './firebase';
+import { User, SystemStats, SavedAssets, UserSavedDocument } from './types';
 
 export const ADMIN_EMAIL = 'mfb.15.f@gmail.com';
 export const ADMIN_PHONE = '0536894854';
@@ -523,43 +524,35 @@ export const updateUserInDb = (user: User) => {
 };
 
 /**
- * Universal login function for ALL users (Google or Email).
- * ALWAYS checks Cloud Firestore first to pull existing profile and assets across devices!
+ * Universal login function with email and password
  */
-export const loginWithEmailOrGoogle = async (profile: {
-  email: string;
-  name?: string;
-  avatar?: string;
-  authProvider?: 'google' | 'email';
-  sub?: string;
-}): Promise<{ success: boolean; user?: User; message: string }> => {
-  const cleanEmail = profile.email.trim().toLowerCase();
+export const loginWithEmailAndPassword = async (
+  email: string,
+  password?: string
+): Promise<{ success: boolean; user?: User; isNewUser?: boolean; message: string }> => {
+  const cleanEmail = email.trim().toLowerCase();
   const isAdminEmail = cleanEmail === ADMIN_EMAIL.toLowerCase();
   const docId = getDocId(cleanEmail);
 
-  let cleanName = (profile.name || cleanEmail.split('@')[0]).replace('(المدير)', '').trim();
-
-  // 1. FIRST: Check Cloud Firestore for existing user and assets (Cross-Device Guarantee)
-  let cloudUser: User | null = null;
-  let cloudAssets: SavedAssets = { template: null, stamp: null, signature: null };
-
+  // 1. Check Cloud Firestore first for existing user
+  let foundUser: User | null = null;
   if (db) {
     try {
       const snap = await getDoc(doc(db, 'users', docId));
-      cloudAssets = await fetchUserAssetsFromFirestore(cleanEmail);
-
       if (snap.exists()) {
         const d = snap.data();
-        cloudUser = {
+        const cloudAssets = await fetchUserAssetsFromFirestore(cleanEmail);
+        foundUser = {
           id: d.id || snap.id,
           email: cleanEmail,
-          name: cleanName || d.name || cleanEmail.split('@')[0],
+          name: d.name || cleanEmail.split('@')[0],
+          passwordHash: d.passwordHash || '',
           phone: d.phone || '',
           dob: d.dob || '',
-          avatar: profile.avatar || d.avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(cleanName)}`,
+          avatar: d.avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(d.name || cleanEmail)}`,
           role: isAdminEmail ? 'admin' : (d.role || 'user'),
           status: d.status === 'suspended' ? 'suspended' : 'active',
-          authProvider: profile.authProvider || d.authProvider || 'google',
+          authProvider: 'email',
           createdAt: d.createdAt || new Date().toISOString(),
           lastLoginAt: new Date().toISOString(),
           theme: d.theme || 'default-light',
@@ -567,89 +560,147 @@ export const loginWithEmailOrGoogle = async (profile: {
         };
       }
     } catch (err) {
-      console.warn('Firestore Check on Login Warning:', err);
+      console.warn('Firestore Check on Login:', err);
     }
   }
 
-  // 2. If user already exists in Firestore: Log them in with their persistent cloud assets!
-  if (cloudUser) {
-    if (cloudUser.status === 'suspended' && !isAdminEmail) {
-      return { 
-        success: false, 
-        message: 'تم إيقاف هذا الحساب مؤقتاً من قبل الإدارة. يرجى التواصل مع الإدارة لإعادة التفعيل.' 
+  // Fallback to local storage
+  if (!foundUser) {
+    const users = getStoredUsers();
+    const local = users.find(u => u.email.toLowerCase() === cleanEmail);
+    if (local) foundUser = local;
+  }
+
+  // If user does not exist, tell them clearly to create an account
+  if (!foundUser) {
+    return {
+      success: false,
+      isNewUser: true,
+      message: 'ليس لديك حساب؟ إنشاء حساب جديد'
+    };
+  }
+
+  if (foundUser.status === 'suspended' && !isAdminEmail) {
+    return {
+      success: false,
+      message: 'تم إيقاف هذا الحساب مؤقتاً من قِبل الإدارة.'
+    };
+  }
+
+  // Password verification if user has a password set
+  if (password && foundUser.passwordHash) {
+    if (foundUser.passwordHash !== password) {
+      return {
+        success: false,
+        message: 'كلمة المرور غير صحيحة. يرجى التأكد وإعادة المحاولة.'
       };
     }
+  } else if (password && !foundUser.passwordHash) {
+    foundUser.passwordHash = password;
+  }
 
-    // Update login timestamp in Firestore
+  foundUser.lastLoginAt = new Date().toISOString();
+  updateUserInDb(foundUser);
+  setCurrentUser(foundUser);
+  if (db) {
     try {
-      if (db) {
-        await setDoc(doc(db, 'users', docId), { lastLoginAt: new Date().toISOString() }, { merge: true });
+      await setDoc(doc(db, 'users', docId), { 
+        lastLoginAt: new Date().toISOString(),
+        ...(foundUser.passwordHash ? { passwordHash: foundUser.passwordHash } : {})
+      }, { merge: true });
+    } catch (e) {
+      console.warn(e);
+    }
+  }
+
+  return {
+    success: true,
+    user: foundUser,
+    message: `مرحباً بعودتك ${foundUser.name}`
+  };
+};
+
+/**
+ * Register a new user with Name/Institution, Email, and Password
+ */
+export const registerWithEmailAndPassword = async (
+  name: string,
+  email: string,
+  password?: string
+): Promise<{ success: boolean; user?: User; message: string }> => {
+  const cleanEmail = email.trim().toLowerCase();
+  const cleanName = name.trim() || cleanEmail.split('@')[0];
+  const isAdminEmail = cleanEmail === ADMIN_EMAIL.toLowerCase();
+  const docId = getDocId(cleanEmail);
+
+  // Check if already registered
+  const users = getStoredUsers();
+  const existingLocal = users.find(u => u.email.toLowerCase() === cleanEmail);
+  if (existingLocal) {
+    return {
+      success: false,
+      message: 'هذا البريد مسجل بالفعل. يرجى تسجيل الدخول.'
+    };
+  }
+
+  if (db) {
+    try {
+      const snap = await getDoc(doc(db, 'users', docId));
+      if (snap.exists()) {
+        return {
+          success: false,
+          message: 'هذا البريد مسجل بالفعل في النظام. يرجى تسجيل الدخول.'
+        };
       }
     } catch (e) {
       console.warn(e);
     }
-
-    // Save to local cache on this device
-    updateUserInDb(cloudUser);
-    setCurrentUser(cloudUser);
-    return { 
-      success: true, 
-      user: cloudUser, 
-      message: `مرحباً بعودتك ${cloudUser.name} ✨ تم تحميل أصولك المحفوظة من السيرفر بنجاح` 
-    };
   }
 
-  // 3. Fallback to local storage if user was previously on this device
-  const users = getStoredUsers();
-  let localUser = users.find(u => u.email.toLowerCase() === cleanEmail);
-
-  if (localUser) {
-    if (localUser.status === 'suspended' && !isAdminEmail) {
-      return { 
-        success: false, 
-        message: 'تم إيقاف هذا الحساب مؤقتاً من قبل الإدارة.' 
-      };
-    }
-    if (cleanName) localUser.name = cleanName;
-    if (profile.avatar) localUser.avatar = profile.avatar;
-    if (isAdminEmail) {
-      localUser.role = 'admin';
-      localUser.status = 'active';
-    }
-    localUser.lastLoginAt = new Date().toISOString();
-    localUser.savedAssets = {
-      template: localUser.savedAssets?.template || cloudAssets.template,
-      stamp: localUser.savedAssets?.stamp || cloudAssets.stamp,
-      signature: localUser.savedAssets?.signature || cloudAssets.signature
-    };
-
-    updateUserInDb(localUser);
-    setCurrentUser(localUser);
-    return { success: true, user: localUser, message: `مرحباً بعودتك ${localUser.name}` };
-  }
-
-  // 4. Brand New User Registration across all devices
   const newUser: User = {
     id: 'usr_' + docId,
     email: cleanEmail,
-    name: cleanName || cleanEmail.split('@')[0],
-    avatar: profile.avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(cleanName || 'User')}`,
+    name: cleanName,
+    passwordHash: password || '',
+    avatar: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(cleanName)}`,
     dob: '',
     phone: '',
-    authProvider: profile.authProvider || 'google',
+    authProvider: 'email',
     role: isAdminEmail ? 'admin' : 'user',
     status: 'active',
     createdAt: new Date().toISOString(),
     lastLoginAt: new Date().toISOString(),
     theme: 'default-light',
-    savedAssets: cloudAssets
+    savedAssets: { template: null, stamp: null, signature: null }
   };
 
-  // Sync to Firestore immediately so user doc exists in the cloud
   await syncUserToFirestore(newUser);
   updateUserInDb(newUser);
   setCurrentUser(newUser);
-  return { success: true, user: newUser, message: `تم تسجيل الدخول بنجاح! مرحباً ${newUser.name}` };
+
+  return {
+    success: true,
+    user: newUser,
+    message: `تم إنشاء الحساب بنجاح! مرحباً ${newUser.name}`
+  };
+};
+
+export const loginWithEmailOrGoogle = async (profile: {
+  email: string;
+  name?: string;
+  password?: string;
+  avatar?: string;
+  authProvider?: 'google' | 'email';
+  sub?: string;
+}): Promise<{ success: boolean; user?: User; message: string }> => {
+  if (profile.password) {
+    const res = await loginWithEmailAndPassword(profile.email, profile.password);
+    if (!res.success && res.isNewUser && profile.name) {
+      return await registerWithEmailAndPassword(profile.name, profile.email, profile.password);
+    }
+    return res;
+  }
+  return await loginWithEmailAndPassword(profile.email);
 };
 
 export const loginWithGoogle = (googleProfile: {
@@ -662,6 +713,335 @@ export const loginWithGoogle = (googleProfile: {
     ...googleProfile,
     authProvider: 'google'
   });
+};
+
+/**
+ * Direct sign-in with Firebase Google Auth Popup
+ */
+export const signInWithFirebaseGoogle = async (): Promise<{
+  success: boolean;
+  user?: User;
+  message: string;
+}> => {
+  try {
+    const cred = await signInWithPopup(auth, googleProvider);
+    const gUser = cred.user;
+    if (!gUser?.email) {
+      return { success: false, message: 'تعذر الحصول على البريد الإلكتروني من حساب Google' };
+    }
+
+    const cleanEmail = gUser.email.trim().toLowerCase();
+    const docId = getDocId(cleanEmail);
+
+    // 1. Fetch user & cloud assets
+    let user = await fetchUserFromFirestoreByEmail(cleanEmail);
+    if (!user) {
+      // Check local storage
+      const localUsers = getStoredUsers();
+      const found = localUsers.find(u => u.email.toLowerCase() === cleanEmail);
+      if (found) user = found;
+    }
+
+    if (!user) {
+      // Create new user
+      const cloudAssets = await fetchUserAssetsFromFirestore(cleanEmail);
+      user = {
+        id: gUser.uid || 'usr_' + docId,
+        email: cleanEmail,
+        name: gUser.displayName || cleanEmail.split('@')[0],
+        avatar: gUser.photoURL || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(cleanEmail)}`,
+        authProvider: 'google',
+        role: cleanEmail === ADMIN_EMAIL.toLowerCase() ? 'admin' : 'user',
+        status: 'active',
+        createdAt: new Date().toISOString(),
+        lastLoginAt: new Date().toISOString(),
+        theme: 'default-light',
+        savedAssets: cloudAssets
+      };
+    } else {
+      user.lastLoginAt = new Date().toISOString();
+      if (gUser.displayName && (!user.name || user.name.includes('@'))) {
+        user.name = gUser.displayName;
+      }
+      if (gUser.photoURL && !user.avatar) {
+        user.avatar = gUser.photoURL;
+      }
+    }
+
+    if (user.status === 'suspended') {
+      return { success: false, message: 'تم إيقاف هذا الحساب مؤقتاً من قِبل الإدارة.' };
+    }
+
+    await syncUserToFirestore(user);
+    updateUserInDb(user);
+    setCurrentUser(user);
+
+    return {
+      success: true,
+      user,
+      message: `مرحباً ${user.name}، تم تسجيل الدخول بنجاح عبر Google!`
+    };
+  } catch (err: any) {
+    console.warn('Firebase Google Sign-in error:', err);
+    if (err?.code === 'auth/popup-closed-by-user') {
+      return { success: false, message: 'تم إغلاق نافذة تسجيل الدخول من Google قبل إتمام العملية' };
+    }
+    if (err?.code === 'auth/cancelled-popup-request') {
+      return { success: false, message: 'تم إلغاء طلب تسجيل الدخول' };
+    }
+    return { 
+      success: false, 
+      message: err?.message || 'تعذر تسجيل الدخول عبر Google. يمكنك استخدام البريد وكلمة المرور.' 
+    };
+  }
+};
+
+/**
+ * Cloud Documents Management
+ * Enables saving, fetching, and deleting notarized documents stored in Cloud Firestore.
+ * Works across ANY device and browser when logged in with the same account.
+ */
+export const saveDocumentToFirestore = async (
+  user: User,
+  docData: {
+    title: string;
+    pdfDataUrl?: string;
+    thumbnailDataUrl: string;
+    pageCount: number;
+    hasTemplate?: boolean;
+    hasStamp?: boolean;
+    hasSignature?: boolean;
+  }
+): Promise<{ success: boolean; documentId?: string; message: string }> => {
+  if (!db || !user?.email) {
+    return { success: false, message: 'يجب تسجيل الدخول لحفظ المستند في السحابة' };
+  }
+
+  try {
+    const userDocId = getDocId(user.email);
+    const documentId = 'doc_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+    
+    // Optimize thumbnail so it's small & fast (< 120KB)
+    let optimizedThumb = docData.thumbnailDataUrl;
+    if (optimizedThumb && optimizedThumb.length > 150 * 1024) {
+      optimizedThumb = await optimizeAssetDataUrl(optimizedThumb, 'template');
+    }
+
+    // Estimate file size text
+    let sizeText = '';
+    if (docData.pdfDataUrl) {
+      const approxBytes = Math.round((docData.pdfDataUrl.length * 3) / 4);
+      if (approxBytes > 1024 * 1024) {
+        sizeText = (approxBytes / (1024 * 1024)).toFixed(1) + ' MB';
+      } else {
+        sizeText = Math.round(approxBytes / 1024) + ' KB';
+      }
+    }
+
+    const docRef = doc(db, 'users', userDocId, 'documents', documentId);
+    
+    // Safe chunk handling if PDF is larger than 600KB to respect Firestore 1MB doc limit
+    const pdfStr = docData.pdfDataUrl || '';
+    const CHUNK_SIZE = 550 * 1024;
+    
+    if (pdfStr.length <= CHUNK_SIZE) {
+      await setDoc(docRef, {
+        id: documentId,
+        userId: user.id,
+        userEmail: user.email.toLowerCase(),
+        title: docData.title || `مستند موثق ${new Date().toLocaleDateString('ar-SA')}`,
+        pageCount: docData.pageCount || 1,
+        thumbnail: optimizedThumb,
+        pdfData: pdfStr,
+        createdAt: new Date().toISOString(),
+        fileSizeText: sizeText,
+        hasTemplate: !!docData.hasTemplate,
+        hasStamp: !!docData.hasStamp,
+        hasSignature: !!docData.hasSignature,
+        chunksCount: 1
+      });
+    } else {
+      // Chunked storage in subcollection
+      const chunksCount = Math.ceil(pdfStr.length / CHUNK_SIZE);
+      await setDoc(docRef, {
+        id: documentId,
+        userId: user.id,
+        userEmail: user.email.toLowerCase(),
+        title: docData.title || `مستند موثق ${new Date().toLocaleDateString('ar-SA')}`,
+        pageCount: docData.pageCount || 1,
+        thumbnail: optimizedThumb,
+        createdAt: new Date().toISOString(),
+        fileSizeText: sizeText,
+        hasTemplate: !!docData.hasTemplate,
+        hasStamp: !!docData.hasStamp,
+        hasSignature: !!docData.hasSignature,
+        chunksCount
+      });
+
+      for (let i = 0; i < chunksCount; i++) {
+        const chunkPart = pdfStr.substring(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+        const chunkDocRef = doc(db, 'users', userDocId, 'documents', documentId, 'chunks', `chunk_${i}`);
+        await setDoc(chunkDocRef, { index: i, data: chunkPart });
+      }
+    }
+
+    // Cache locally as well
+    const localKey = `watheeq_docs_${userDocId}`;
+    try {
+      const existing = JSON.parse(localStorage.getItem(localKey) || '[]');
+      existing.unshift({
+        id: documentId,
+        userId: user.id,
+        userEmail: user.email.toLowerCase(),
+        title: docData.title,
+        pageCount: docData.pageCount,
+        thumbnail: optimizedThumb,
+        createdAt: new Date().toISOString(),
+        fileSizeText: sizeText
+      });
+      localStorage.setItem(localKey, JSON.stringify(existing.slice(0, 50)));
+    } catch {}
+
+    return { success: true, documentId, message: 'تم حفظ المستند في سحابة حسابك بنجاح ✅' };
+  } catch (err: any) {
+    console.error('Save document to Firestore error:', err);
+    return { success: false, message: 'فشل حفظ المستند في السحابة: ' + (err?.message || err) };
+  }
+};
+
+export const fetchUserDocumentsFromFirestore = async (email: string): Promise<UserSavedDocument[]> => {
+  if (!db || !email) return [];
+  const userDocId = getDocId(email);
+
+  try {
+    const docsCol = collection(db, 'users', userDocId, 'documents');
+    const snap = await getDocs(docsCol);
+    const docsList: UserSavedDocument[] = [];
+
+    snap.forEach((d) => {
+      const data = d.data();
+      if (data) {
+        docsList.push({
+          id: d.id,
+          userId: data.userId || '',
+          userEmail: data.userEmail || email,
+          title: data.title || 'مستند موثق',
+          pageCount: data.pageCount || 1,
+          thumbnail: data.thumbnail || '',
+          pdfData: data.pdfData || undefined,
+          createdAt: data.createdAt || new Date().toISOString(),
+          fileSizeText: data.fileSizeText || '',
+          hasTemplate: data.hasTemplate,
+          hasStamp: data.hasStamp,
+          hasSignature: data.hasSignature
+        });
+      }
+    });
+
+    docsList.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    return docsList;
+  } catch (err) {
+    console.warn('Fetch user documents error:', err);
+    // Local fallback
+    try {
+      const local = localStorage.getItem(`watheeq_docs_${userDocId}`);
+      if (local) return JSON.parse(local);
+    } catch {}
+    return [];
+  }
+};
+
+export const getFullDocumentPdfFromFirestore = async (email: string, docId: string): Promise<string | null> => {
+  if (!db || !email || !docId) return null;
+  const userDocId = getDocId(email);
+
+  try {
+    const docRef = doc(db, 'users', userDocId, 'documents', docId);
+    const snap = await getDoc(docRef);
+    if (!snap.exists()) return null;
+    const data = snap.data();
+    if (data.pdfData) return data.pdfData;
+
+    if (data.chunksCount && data.chunksCount > 1) {
+      const chunksCol = collection(db, 'users', userDocId, 'documents', docId, 'chunks');
+      const chunksSnap = await getDocs(chunksCol);
+      const chunks: { index: number; data: string }[] = [];
+      chunksSnap.forEach((c) => {
+        const cd = c.data();
+        chunks.push({ index: cd.index, data: cd.data });
+      });
+      chunks.sort((a, b) => a.index - b.index);
+      return chunks.map(c => c.data).join('');
+    }
+  } catch (e) {
+    console.error('Error fetching full PDF:', e);
+  }
+  return null;
+};
+
+export const deleteDocumentFromFirestore = async (email: string, docId: string): Promise<boolean> => {
+  if (!db || !email || !docId) return false;
+  const userDocId = getDocId(email);
+
+  try {
+    const docRef = doc(db, 'users', userDocId, 'documents', docId);
+    await deleteDoc(docRef);
+
+    // Update local cache
+    const localKey = `watheeq_docs_${userDocId}`;
+    try {
+      const existing: UserSavedDocument[] = JSON.parse(localStorage.getItem(localKey) || '[]');
+      const filtered = existing.filter(d => d.id !== docId);
+      localStorage.setItem(localKey, JSON.stringify(filtered));
+    } catch {}
+
+    return true;
+  } catch (err) {
+    console.error('Delete document error:', err);
+    return false;
+  }
+};
+
+export const subscribeToUserDocuments = (
+  email: string,
+  onUpdate: (docs: UserSavedDocument[]) => void
+): (() => void) => {
+  if (!db || !email) return () => {};
+  const userDocId = getDocId(email);
+
+  try {
+    const docsCol = collection(db, 'users', userDocId, 'documents');
+    const unsub = onSnapshot(docsCol, (snap) => {
+      const docsList: UserSavedDocument[] = [];
+      snap.forEach((d) => {
+        const data = d.data();
+        if (data) {
+          docsList.push({
+            id: d.id,
+            userId: data.userId || '',
+            userEmail: data.userEmail || email,
+            title: data.title || 'مستند موثق',
+            pageCount: data.pageCount || 1,
+            thumbnail: data.thumbnail || '',
+            pdfData: data.pdfData || undefined,
+            createdAt: data.createdAt || new Date().toISOString(),
+            fileSizeText: data.fileSizeText || '',
+            hasTemplate: data.hasTemplate,
+            hasStamp: data.hasStamp,
+            hasSignature: data.hasSignature
+          });
+        }
+      });
+      docsList.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      onUpdate(docsList);
+    }, (err) => {
+      console.warn('Realtime documents listener warning:', err);
+    });
+    return unsub;
+  } catch (e) {
+    console.warn('Subscribe documents error:', e);
+    return () => {};
+  }
 };
 
 export const deleteUserByAdmin = async (userId: string): Promise<boolean> => {

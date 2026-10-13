@@ -40,6 +40,23 @@
         "updatedAt": { "type": "string" }
       },
       "required": ["userId", "type", "data"]
+    },
+    "UserDocument": {
+      "title": "UserDocument",
+      "description": "Stores notarized documents created by a user, accessible from any device",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "title": { "type": "string" },
+        "pageCount": { "type": "number" },
+        "thumbnail": { "type": "string" },
+        "pdfData": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "fileSizeText": { "type": "string" }
+      },
+      "required": ["id", "userId", "userEmail", "title", "createdAt"]
     }
   },
   "firestore": {
@@ -50,6 +67,10 @@
     "/users/{userId}/assets/{assetId}": {
       "schema": "UserAsset",
       "description": "Stores persistent user assets across all devices and browsers"
+    },
+    "/users/{userId}/documents/{documentId}": {
+      "schema": "UserDocument",
+      "description": "Stores notarized documents accessible across all devices"
     }
   }
 }

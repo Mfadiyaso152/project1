@@ -120,6 +120,35 @@
         100% { transform: rotate(0deg); }
       }
       
+      @keyframes buttonGlowPulse {
+        0%, 100% { box-shadow: 0 4px 14px 0 rgba(37, 99, 235, 0.25); }
+        50% { box-shadow: 0 6px 22px 0 rgba(37, 99, 235, 0.45); }
+      }
+
+      @keyframes badgePulse {
+        0%, 100% { transform: scale(1); opacity: 1; }
+        50% { transform: scale(1.08); opacity: 0.85; }
+      }
+
+      @keyframes toastDropIn {
+        0% {
+          opacity: 0;
+          transform: translateY(-24px) scale(0.95);
+        }
+        70% {
+          opacity: 1;
+          transform: translateY(2px) scale(1.02);
+        }
+        100% {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+      }
+
+      .animate-toast-drop {
+        animation: toastDropIn 0.38s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      }
+      
       .animate-page-enter {
         animation: pageLuxuryEnter 0.42s cubic-bezier(0.16, 1, 0.3, 1) forwards;
       }
@@ -152,6 +181,14 @@
         animation: luxuryCardFloat 6s ease-in-out infinite;
       }
 
+      .animate-btn-glow {
+        animation: buttonGlowPulse 3s infinite ease-in-out;
+      }
+
+      .animate-badge-pulse {
+        animation: badgePulse 2s infinite ease-in-out;
+      }
+
       .pb-safe {
         padding-bottom: env(safe-area-inset-bottom, 20px);
       }
@@ -163,9 +200,9 @@
         scroll-behavior: smooth; 
       }
 
-      /* Specific smooth transitions for buttons and cards without lagging drag items */
+      /* Distinctive modern button & interactive micro-effects */
       button, a, input, select, textarea, .transition-smooth {
-        transition-property: color, background-color, border-color, box-shadow, transform, opacity;
+        transition-property: color, background-color, border-color, box-shadow, transform, opacity, filter;
         transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
         transition-duration: 220ms;
       }
@@ -173,6 +210,10 @@
       /* Active element spring bounce */
       button:active:not(:disabled), a:active {
         transform: scale(0.975);
+      }
+
+      button:hover:not(:disabled):not(.canvas-draggable) {
+        will-change: transform;
       }
 
       /* Dragging elements must NEVER animate position */

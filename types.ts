@@ -65,3 +65,18 @@ export interface SystemStats {
   activeUsers: number;
   googleUsers: number;
 }
+
+export interface UserSavedDocument {
+  id: string;
+  userId: string;
+  userEmail: string;
+  title: string;
+  pageCount: number;
+  thumbnail: string;
+  pdfData?: string;
+  createdAt: string;
+  fileSizeText?: string;
+  hasTemplate?: boolean;
+  hasStamp?: boolean;
+  hasSignature?: boolean;
+}

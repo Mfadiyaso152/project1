@@ -21,10 +21,14 @@ import {
   RotateCcw,
   PlusCircle,
   Eye,
-  EyeOff
+  EyeOff,
+  Layers,
+  Trash2,
+  Cloud,
+  CheckCircle2
 } from 'lucide-react';
 import SignaturePad from './SignaturePad';
-import { saveUserAsset } from '../authService';
+import { saveUserAsset, saveDocumentToFirestore } from '../authService';
 
 interface CanvasEditorProps {
   documents: DocumentState;
@@ -44,10 +48,12 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const stampFileInputRef = useRef<HTMLInputElement>(null);
   const sigFileInputRef = useRef<HTMLInputElement>(null);
+  const templateFileInputRef = useRef<HTMLInputElement>(null);
   
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [stampConfigs, setStampConfigs] = useState<{ [key: number]: StampPosition }>({});
   const [signatureConfigs, setSignatureConfigs] = useState<{ [key: number]: StampPosition }>({});
+  const [mergeMode, setMergeMode] = useState<'overlay' | 'append'>('overlay');
   
   const [draggingItem, setDraggingItem] = useState<'stamp' | 'signature' | null>(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
@@ -56,6 +62,8 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
   const [isExporting, setIsExporting] = useState(false);
   const [exportedBlob, setExportedBlob] = useState<Blob | null>(null);
   const [isExported, setIsExported] = useState(false);
+  const [cloudSavedDocId, setCloudSavedDocId] = useState<string | null>(null);
+  const [isSavingToCloud, setIsSavingToCloud] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [showFreshConfirmModal, setShowFreshConfirmModal] = useState(false);
   const [isDrawingSigModal, setIsDrawingSigModal] = useState(false);
@@ -85,83 +93,73 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     return { w, h };
   }, []);
 
-  const getSafeStampConfig = useCallback((pageIdx: number): StampPosition => {
+  // Standalone computation of initial default stamp placement (zero dependency on state to avoid loops)
+  const computeDefaultStamp = useCallback((): StampPosition => {
     const { w, h } = getSafeDimensions();
-    const saved = stampConfigs[pageIdx];
-    const size = saved?.size || 130;
-
-    // Default position: lower right area (traditional placement for official stamps in Arabic documents)
+    const size = 130;
     const defaultX = Math.round(w * 0.12);
     const defaultY = Math.max(10, Math.round(h - size - 36));
+    const x = Math.max(8, Math.min(defaultX, w - size - 8));
+    const y = Math.max(8, Math.min(defaultY, h - size - 8));
+    return { x, y, size, enabled: !!documents.stamp };
+  }, [getSafeDimensions, documents.stamp]);
 
-    let x = (saved?.x !== undefined && !isNaN(saved.x)) ? saved.x : defaultX;
-    let y = (saved?.y !== undefined && !isNaN(saved.y)) ? saved.y : defaultY;
-
-    // Strict clamping within visible paper
-    x = Math.max(8, Math.min(x, w - size - 8));
-    y = Math.max(8, Math.min(y, h - size - 8));
-
-    return {
-      x,
-      y,
-      size,
-      enabled: saved?.enabled !== undefined ? saved.enabled : !!documents.stamp
-    };
-  }, [stampConfigs, getSafeDimensions, documents.stamp]);
-
-  const getSafeSignatureConfig = useCallback((pageIdx: number): StampPosition => {
+  // Standalone computation of initial default signature placement (zero dependency on state to avoid loops)
+  const computeDefaultSignature = useCallback((): StampPosition => {
     const { w, h } = getSafeDimensions();
-    const saved = signatureConfigs[pageIdx];
-    const size = saved?.size || 130;
-
-    // Default position: lower left area (traditional placement for signature in Arabic documents)
+    const size = 130;
     const defaultX = Math.max(10, Math.round(w - size - (w * 0.12)));
     const defaultY = Math.max(10, Math.round(h - size - 36));
+    const x = Math.max(8, Math.min(defaultX, w - size - 8));
+    const y = Math.max(8, Math.min(defaultY, h - size - 8));
+    return { x, y, size, enabled: !!documents.signature };
+  }, [getSafeDimensions, documents.signature]);
 
-    let x = (saved?.x !== undefined && !isNaN(saved.x)) ? saved.x : defaultX;
-    let y = (saved?.y !== undefined && !isNaN(saved.y)) ? saved.y : defaultY;
+  const getSafeStampConfig = useCallback((pageIdx: number): StampPosition => {
+    const saved = stampConfigs[pageIdx];
+    if (saved) return saved;
+    return computeDefaultStamp();
+  }, [stampConfigs, computeDefaultStamp]);
 
-    // Strict clamping within visible paper
-    x = Math.max(8, Math.min(x, w - size - 8));
-    y = Math.max(8, Math.min(y, h - size - 8));
+  const getSafeSignatureConfig = useCallback((pageIdx: number): StampPosition => {
+    const saved = signatureConfigs[pageIdx];
+    if (saved) return saved;
+    return computeDefaultSignature();
+  }, [signatureConfigs, computeDefaultSignature]);
 
-    return {
-      x,
-      y,
-      size,
-      enabled: saved?.enabled !== undefined ? saved.enabled : !!documents.signature
-    };
-  }, [signatureConfigs, getSafeDimensions, documents.signature]);
-
-  // Keep configs updated across all pages
+  // Keep configs updated across all pages WITHOUT infinite dependency loop
   useEffect(() => {
     const pageCount = Math.max(1, totalPages);
     setStampConfigs(prev => {
+      let changed = false;
       const next = { ...prev };
       for (let i = 0; i < pageCount; i++) {
         if (!next[i]) {
-          const safe = getSafeStampConfig(i);
-          next[i] = safe;
+          next[i] = computeDefaultStamp();
+          changed = true;
         } else if (documents.stamp && next[i].enabled === false && prev[i] === undefined) {
-          next[i].enabled = true;
+          next[i] = { ...next[i], enabled: true };
+          changed = true;
         }
       }
-      return next;
+      return changed ? next : prev;
     });
 
     setSignatureConfigs(prev => {
+      let changed = false;
       const next = { ...prev };
       for (let i = 0; i < pageCount; i++) {
         if (!next[i]) {
-          const safe = getSafeSignatureConfig(i);
-          next[i] = safe;
+          next[i] = computeDefaultSignature();
+          changed = true;
         } else if (documents.signature && next[i].enabled === false && prev[i] === undefined) {
-          next[i].enabled = true;
+          next[i] = { ...next[i], enabled: true };
+          changed = true;
         }
       }
-      return next;
+      return changed ? next : prev;
     });
-  }, [totalPages, documents.stamp, documents.signature, getSafeStampConfig, getSafeSignatureConfig]);
+  }, [totalPages, documents.stamp, documents.signature, computeDefaultStamp, computeDefaultSignature]);
 
   const currentStampConfig = getSafeStampConfig(currentPageIndex);
   const currentSignatureConfig = getSafeSignatureConfig(currentPageIndex);
@@ -460,10 +458,11 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     }
   };
 
-  // File Upload Helper within Editor
-  const handleFileUploadInEditor = (type: 'stamp' | 'signature', file: File) => {
+  // File Upload Helper within Editor (supporting stamp, signature, and official template)
+  const handleFileUploadInEditor = (type: 'stamp' | 'signature' | 'template', file: File) => {
     const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
     if (isPdf) {
+      showToast('جاري معالجة الملف...');
       const fileReader = new FileReader();
       fileReader.onload = async function() {
         try {
@@ -471,21 +470,42 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
           const pdfjsLib = (window as any).pdfjsLib;
           if (!pdfjsLib) throw new Error("مكتبة معالجة PDF قيد التحميل");
           const pdf = await pdfjsLib.getDocument({ data: typedarray }).promise;
-          const page = await pdf.getPage(1);
-          const viewport = page.getViewport({ scale: 2.0 });
-          const canvas = document.createElement('canvas');
-          const context = canvas.getContext('2d');
-          if (context) {
-            canvas.height = viewport.height;
-            canvas.width = viewport.width;
-            await page.render({ canvasContext: context, viewport: viewport }).promise;
-            const dataUrl = canvas.toDataURL('image/png');
-            if (onUpdateDocs) {
-              onUpdateDocs(prev => ({ ...prev, [type]: dataUrl }));
+          
+          if (type === 'template') {
+            const pages: string[] = [];
+            for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+              const page = await pdf.getPage(pageNum);
+              const viewport = page.getViewport({ scale: 2.0 });
+              const canvas = document.createElement('canvas');
+              const context = canvas.getContext('2d');
+              if (context) {
+                canvas.height = viewport.height;
+                canvas.width = viewport.width;
+                await page.render({ canvasContext: context, viewport: viewport }).promise;
+                pages.push(canvas.toDataURL('image/png'));
+              }
             }
-            if (type === 'stamp') applyStampPreset('all');
-            else applySignaturePreset('all');
-            showToast(`تم تعيين ${type === 'stamp' ? 'الختم' : 'التوقيع'} بنجاح ✅`);
+            if (onUpdateDocs) {
+              onUpdateDocs(prev => ({ ...prev, template: pages[0] || null, templatePages: pages }));
+            }
+            showToast('تم تعيين الورقة الرسمية بنجاح ✅');
+          } else {
+            const page = await pdf.getPage(1);
+            const viewport = page.getViewport({ scale: 2.0 });
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            if (context) {
+              canvas.height = viewport.height;
+              canvas.width = viewport.width;
+              await page.render({ canvasContext: context, viewport: viewport }).promise;
+              const dataUrl = canvas.toDataURL('image/png');
+              if (onUpdateDocs) {
+                onUpdateDocs(prev => ({ ...prev, [type]: dataUrl }));
+              }
+              if (type === 'stamp') applyStampPreset('all');
+              else applySignaturePreset('all');
+              showToast(`تم تعيين ${type === 'stamp' ? 'الختم' : 'التوقيع'} بنجاح ✅`);
+            }
           }
         } catch (e: any) {
           showToast('حدث خطأ أثناء معالجة الملف: ' + (e?.message || e));
@@ -497,14 +517,75 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
       reader.onload = (e) => {
         if (e.target?.result && onUpdateDocs) {
           const dataUrl = e.target.result as string;
-          onUpdateDocs(prev => ({ ...prev, [type]: dataUrl }));
-          if (type === 'stamp') applyStampPreset('all');
-          else applySignaturePreset('all');
-          showToast(`تم تعيين ${type === 'stamp' ? 'الختم' : 'التوقيع'} بنجاح ✅`);
+          if (type === 'template') {
+            onUpdateDocs(prev => ({ ...prev, template: dataUrl, templatePages: [dataUrl] }));
+            showToast('تم تعيين الورقة الرسمية بنجاح ✅');
+          } else {
+            onUpdateDocs(prev => ({ ...prev, [type]: dataUrl }));
+            if (type === 'stamp') applyStampPreset('all');
+            else applySignaturePreset('all');
+            showToast(`تم تعيين ${type === 'stamp' ? 'الختم' : 'التوقيع'} بنجاح ✅`);
+          }
         }
       };
       reader.readAsDataURL(file);
     }
+  };
+
+  /**
+   * Preprocesses the document page so light/paper backgrounds (white, scanning grey, noise)
+   * are cleanly normalized to pure white (255, 255, 255).
+   * When blended onto the letterhead template with 'multiply', pure white is 100% invisible,
+   * revealing the official letterhead headers, footers, borders, and watermarks crystal-clear!
+   */
+  const cleanDocumentPage = (img: HTMLImageElement): HTMLCanvasElement => {
+    const canvas = document.createElement('canvas');
+    canvas.width = img.width;
+    canvas.height = img.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return canvas;
+    ctx.drawImage(img, 0, 0);
+
+    try {
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imageData.data;
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+        
+        if (lum > 218) {
+          // Normalize paper background to pure white
+          data[i] = 255;
+          data[i + 1] = 255;
+          data[i + 2] = 255;
+        } else if (lum < 90) {
+          // Boost dark text contrast
+          data[i] = Math.max(0, r * 0.8);
+          data[i + 1] = Math.max(0, g * 0.8);
+          data[i + 2] = Math.max(0, b * 0.8);
+        }
+      }
+      ctx.putImageData(imageData, 0, 0);
+    } catch (e) {
+      console.warn('Canvas image preprocessing warning:', e);
+    }
+
+    return canvas;
+  };
+
+  const loadImage = (src: string): Promise<HTMLImageElement> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      // Only set crossOrigin on non-data, non-blob URLs to prevent WebKit CORS bugs
+      if (!src.startsWith('data:') && !src.startsWith('blob:')) {
+        img.crossOrigin = 'anonymous';
+      }
+      img.onload = () => resolve(img);
+      img.onerror = (e) => reject(new Error('فشل تحميل الصورة: ' + (e as any)?.message || 'تنسيق غير صالح'));
+      img.src = src;
+    });
   };
 
   const handleExport = async () => {
@@ -520,8 +601,14 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         ? documents.originalPages 
         : (documents.original ? [documents.original] : []);
 
+      if (pagesToProcess.length === 0) {
+        throw new Error('يرجى رفع المستند الأصلي أولاً');
+      }
+
       const { w: containerWidth, h: containerHeight } = getSafeDimensions();
 
+      let firstPageThumb = '';
+      // Process all document pages
       for (let i = 0; i < pagesToProcess.length; i++) {
         if (i > 0) pdf.addPage('a4', 'portrait');
 
@@ -531,25 +618,51 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         const ctx = canvas.getContext('2d');
 
         if (ctx) {
-          ctx.fillStyle = '#ffffff';
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-          // 1. Template background
           const currentTemplate = getTemplateForPage(i);
+          let templateImg: HTMLImageElement | null = null;
+          
           if (currentTemplate) {
-            const templateImg = await loadImage(currentTemplate);
-            ctx.drawImage(templateImg, 0, 0, canvas.width, canvas.height);
+            try {
+              templateImg = await loadImage(currentTemplate);
+            } catch (err: any) {
+              console.error('Template loading failed for page', i, err);
+              throw new Error('تعذر تحميل ورقة المؤسسة (القالب): ' + (err?.message || 'الملف غير صالح'));
+            }
           }
 
-          // 2. Original Page
-          const origImg = await loadImage(pagesToProcess[i]);
-          ctx.drawImage(origImg, 0, 0, canvas.width, canvas.height);
+          // LAYER 1: BASE BACKGROUND
+          if (templateImg && mergeMode === 'overlay') {
+            // Draw official letterhead template as full-bleed A4 background
+            ctx.drawImage(templateImg, 0, 0, canvas.width, canvas.height);
+          } else {
+            // Standard clean white sheet
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+          }
 
-          // Scale coordinates
+          // LAYER 2: DOCUMENT CONTENT
+          const origImg = await loadImage(pagesToProcess[i]);
+          
+          if (templateImg && mergeMode === 'overlay') {
+            // Preprocess paper background so scanner grain/off-white is pure white
+            const cleanedDoc = cleanDocumentPage(origImg);
+            
+            // Multiply blending: White paper disappears into the template background,
+            // while all text, lines, tables, and content print onto the letterhead perfectly!
+            ctx.save();
+            ctx.globalCompositeOperation = 'multiply';
+            ctx.drawImage(cleanedDoc, 0, 0, canvas.width, canvas.height);
+            ctx.restore();
+          } else {
+            // Direct draw if no overlay template
+            ctx.drawImage(origImg, 0, 0, canvas.width, canvas.height);
+          }
+
+          // Scale factor between screen preview container and high-res export canvas
           const scaleX = canvas.width / containerWidth;
           const scaleY = canvas.height / containerHeight;
 
-          // 3. Stamp (only if enabled on page i)
+          // LAYER 3: OFFICIAL STAMP (Drawn in standard source-over mode for full color vibrancy)
           const stampConfig = getSafeStampConfig(i);
           if (documents.stamp && stampConfig.enabled) {
             const stampImg = await loadImage(documents.stamp);
@@ -559,7 +672,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
             ctx.drawImage(stampImg, stampX, stampY, stampSize, stampSize);
           }
 
-          // 4. Signature (only if enabled on page i)
+          // LAYER 4: OFFICIAL SIGNATURE (Drawn in standard source-over mode)
           const sigConfig = getSafeSignatureConfig(i);
           if (documents.signature && sigConfig.enabled) {
             const sigImg = await loadImage(documents.signature);
@@ -569,30 +682,69 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
             ctx.drawImage(sigImg, sigX, sigY, sigSize, sigSize);
           }
 
-          const pageDataUrl = canvas.toDataURL('image/jpeg', 0.95);
-          pdf.addImage(pageDataUrl, 'JPEG', 0, 0, 210, 297);
+          // Add completed composite page to PDF
+          const pageDataUrl = canvas.toDataURL('image/png');
+          if (i === 0) firstPageThumb = pageDataUrl;
+          pdf.addImage(pageDataUrl, 'PNG', 0, 0, 210, 297);
+        }
+      }
+
+      // If user chose independent appendix mode, append template pages as standalone pages
+      if (mergeMode === 'append' && documents.templatePages.length > 0) {
+        for (let tIdx = 0; tIdx < documents.templatePages.length; tIdx++) {
+          pdf.addPage('a4', 'portrait');
+          const tCanvas = document.createElement('canvas');
+          tCanvas.width = 1240;
+          tCanvas.height = 1754;
+          const tCtx = tCanvas.getContext('2d');
+          if (tCtx) {
+            const tImg = await loadImage(documents.templatePages[tIdx]);
+            tCtx.drawImage(tImg, 0, 0, tCanvas.width, tCanvas.height);
+            pdf.addImage(tCanvas.toDataURL('image/png'), 'PNG', 0, 0, 210, 297);
+          }
         }
       }
 
       const blob = pdf.output('blob');
+      const pdfDataUrl = pdf.output('datauristring');
       setExportedBlob(blob);
       setIsExported(true);
+
+      // Cloud Firestore cross-device document saving
+      if (currentUser?.email) {
+        setIsSavingToCloud(true);
+        try {
+          const docTitle = `مستند موثق #${Math.floor(1000 + Math.random() * 9000)} (${new Date().toLocaleDateString('ar-SA')})`;
+          const res = await saveDocumentToFirestore(currentUser, {
+            title: docTitle,
+            pdfDataUrl,
+            thumbnailDataUrl: firstPageThumb,
+            pageCount: pagesToProcess.length,
+            hasTemplate: !!documents.template || documents.templatePages.length > 0,
+            hasStamp: !!documents.stamp,
+            hasSignature: !!documents.signature
+          });
+          if (res.success) {
+            setCloudSavedDocId(res.documentId || null);
+            showToast('تم توثيق المستند وحفظه بنجاح ✅');
+          } else {
+            showToast('تم توثيق ودمج المستند بنجاح 🎉');
+          }
+        } catch (e) {
+          console.warn('Cloud save error:', e);
+          showToast('تم توثيق ودمج المستند بنجاح 🎉');
+        } finally {
+          setIsSavingToCloud(false);
+        }
+      } else {
+        showToast('تم توثيق ودمج المستند بنجاح 🎉');
+      }
     } catch (err: any) {
-      console.error(err);
-      alert('حدث خطأ أثناء تصدير المستند: ' + (err.message || err));
+      console.error('Export Error:', err);
+      alert('خطأ أثناء توثيق المستند: ' + (err?.message || err));
     } finally {
       setIsExporting(false);
     }
-  };
-
-  const loadImage = (src: string): Promise<HTMLImageElement> => {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = () => resolve(img);
-      img.onerror = (e) => reject(e);
-      img.src = src;
-    });
   };
 
   const handleShareClick = async () => {
@@ -602,8 +754,6 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       try {
         await navigator.share({
-          title: 'مستند موثق عبر وثيق',
-          text: 'تم توثيق وتوقيع هذا المستند رسمياً عبر منصة وثيق.',
           files: [file]
         });
         return;
@@ -649,13 +799,24 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     >
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 bg-slate-900/90 text-white px-5 py-2.5 rounded-2xl shadow-xl text-xs font-bold backdrop-blur-md animate-fade-in flex items-center gap-2 border border-slate-700">
-          <Check size={14} className="text-emerald-400" />
-          <span>{toastMessage}</span>
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 animate-toast-drop pointer-events-none">
+          <div className="bg-slate-900/90 text-white px-5 py-3 rounded-2xl shadow-2xl text-xs font-black backdrop-blur-2xl flex items-center gap-2.5 border border-slate-700/80">
+            <Check size={16} className="text-emerald-400" />
+            <span>{toastMessage}</span>
+          </div>
         </div>
       )}
 
       {/* Hidden File Inputs for in-editor upload */}
+      <input 
+        ref={templateFileInputRef} 
+        type="file" 
+        accept="image/png, image/jpeg, application/pdf" 
+        className="hidden" 
+        onChange={(e) => {
+          if (e.target.files?.[0]) handleFileUploadInEditor('template', e.target.files[0]);
+        }} 
+      />
       <input 
         ref={stampFileInputRef} 
         type="file" 
@@ -740,8 +901,8 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
           ref={containerRef}
           className="relative w-full max-w-[460px] aspect-[210/297] min-h-[480px] bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-300/80 select-none touch-none transition-all duration-300"
         >
-          {/* Template */}
-          {currentPageTemplate && (
+          {/* Layer 1: Template (Official Letterhead) */}
+          {currentPageTemplate && mergeMode === 'overlay' && (
             <img 
               src={currentPageTemplate} 
               alt="Official Letterhead" 
@@ -749,12 +910,14 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
             />
           )}
 
-          {/* Original Document */}
+          {/* Layer 2: Original Document Page with Multiply Blend Mode for crystal-clear letterhead overlay */}
           {currentPageOriginal && (
             <img 
               src={currentPageOriginal} 
               alt="Document Page" 
-              className="absolute inset-0 w-full h-full object-fill pointer-events-none z-20"
+              className={`absolute inset-0 w-full h-full object-fill pointer-events-none z-20 ${
+                currentPageTemplate && mergeMode === 'overlay' ? 'mix-blend-multiply' : ''
+              }`}
             />
           )}
 
@@ -816,6 +979,115 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
 
       {/* Control Cards Sidebar */}
       <div className="w-full lg:w-96 flex flex-col gap-4">
+
+        {/* 0. OFFICIAL INSTITUTION PAPER (TEMPLATE / LETTERHEAD) CARD */}
+        <div className="bg-white border border-slate-200/90 p-5 rounded-3xl shadow-sm flex flex-col gap-3.5 animate-fade-in">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                <Layers size={16} />
+              </div>
+              <div>
+                <h3 className="text-xs font-black text-slate-900">ورقة المؤسسة الرسمية</h3>
+                <p className="text-[10px] text-slate-400">القالب والترويسة المدمجة للخطابات</p>
+              </div>
+            </div>
+            {currentPageTemplate ? (
+              <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700">
+                مفعلة
+              </span>
+            ) : (
+              <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-500">
+                غير مرفقة
+              </span>
+            )}
+          </div>
+
+          {currentPageTemplate ? (
+            <div className="flex flex-col gap-3">
+              {/* Thumbnail and Details */}
+              <div className="flex items-center gap-3 bg-slate-50 p-2.5 rounded-2xl border border-slate-200/70">
+                <div className="w-12 h-16 bg-white rounded-lg border border-slate-200 overflow-hidden shrink-0 shadow-xs">
+                  <img 
+                    src={currentPageTemplate} 
+                    alt="Template thumbnail" 
+                    className="w-full h-full object-cover" 
+                  />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-bold text-slate-800 truncate">
+                    ورقة المؤسسة الرسمية
+                  </p>
+                  <p className="text-[10px] text-slate-500 mt-0.5">
+                    {documents.templatePages.length > 1 
+                      ? `${documents.templatePages.length} صفحات بالقالب` 
+                      : 'قالب رسمي معتمد'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => templateFileInputRef.current?.click()}
+                  className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 py-2 px-3 rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Upload size={13} />
+                  <span>تغيير الورقة</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (onUpdateDocs) {
+                      onUpdateDocs(prev => ({ ...prev, template: null, templatePages: [] }));
+                    }
+                    showToast('تمت إزالة ورقة المؤسسة');
+                  }}
+                  className="bg-rose-50 hover:bg-rose-100 text-rose-700 p-2 rounded-xl border border-rose-200 transition-colors cursor-pointer"
+                  title="إزالة ورقة المؤسسة"
+                >
+                  <Trash2 size={15} />
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2.5">
+              <p className="text-[11px] text-slate-500 leading-relaxed">
+                يمكنك إرفاق ورقة المؤسسة الرسمية (الترويسة) لدمجها خلف محتوى المستند أو كصفحة إضافية.
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => templateFileInputRef.current?.click()}
+                  className="flex-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 py-2.5 px-3 rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Upload size={13} />
+                  <span>رفع ورقة المؤسسة (PDF / صورة)</span>
+                </button>
+                {currentUser?.savedAssets?.template && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (onUpdateDocs && currentUser.savedAssets.template) {
+                        onUpdateDocs(prev => ({ 
+                          ...prev, 
+                          template: currentUser.savedAssets.template,
+                          templatePages: [currentUser.savedAssets.template]
+                        }));
+                      }
+                      showToast('تم استيراد الورقة الرسمية المحفوظة بنجاح ✅');
+                    }}
+                    className="bg-slate-100 hover:bg-slate-200 text-slate-700 p-2.5 rounded-xl border border-slate-200 text-xs font-bold transition-colors cursor-pointer"
+                    title="استيراد من حسابي"
+                  >
+                    <BookmarkCheck size={15} />
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* 1. STAMP MANAGEMENT CARD */}
         {documents.stamp ? (
@@ -1281,10 +1553,33 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
             /* COMPLETION STATE BUTTONS */
             <div className="flex flex-col gap-3 animate-fade-in-up">
               
+              {/* Cloud Saved Indicator Card */}
+              {currentUser?.email && (
+                <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200/90 rounded-2xl p-3.5 flex items-center justify-between text-xs shadow-xs animate-scale-in">
+                  <div className="flex items-center gap-2.5 text-blue-900 font-bold">
+                    <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-xs">
+                      <Cloud size={17} className={isSavingToCloud ? 'animate-pulse' : ''} />
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="font-black text-slate-900">
+                        {isSavingToCloud ? 'جاري الحفظ في السحابة...' : 'محفوظ في سحابة حسابك'}
+                      </span>
+                      <span className="text-[10px] text-slate-500 font-medium">
+                        متاح الآن وتستطيع فتحه من أي جهاز بنفس الحساب
+                      </span>
+                    </div>
+                  </div>
+                  <span className="text-[10px] bg-blue-600 text-white font-black px-2.5 py-1 rounded-lg flex items-center gap-1 shadow-xs">
+                    <CheckCircle2 size={12} />
+                    <span>سحابي</span>
+                  </span>
+                </div>
+              )}
+
               {/* 1. Share Button */}
               <button
                 onClick={handleShareClick}
-                className="flex items-center justify-center gap-2.5 w-full bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-500 hover:to-indigo-600 text-white py-4 px-6 rounded-2xl font-black text-sm shadow-xl shadow-blue-600/25 transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+                className="flex items-center justify-center gap-2.5 w-full bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-500 hover:to-indigo-600 text-white py-4 px-6 rounded-2xl font-black text-sm shadow-xl shadow-blue-600/25 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98] cursor-pointer"
               >
                 <Share2 size={20} />
                 <span>مشاركة المستند</span>
@@ -1293,7 +1588,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
               {/* 2. Download File Button */}
               <button
                 onClick={handleDownloadFile}
-                className="flex items-center justify-center gap-2.5 w-full bg-emerald-600 hover:bg-emerald-700 text-white py-3.5 px-6 rounded-2xl font-black text-xs shadow-md transition-all cursor-pointer"
+                className="flex items-center justify-center gap-2.5 w-full bg-emerald-600 hover:bg-emerald-700 text-white py-3.5 px-6 rounded-2xl font-black text-xs shadow-md shadow-emerald-600/20 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98] cursor-pointer"
               >
                 <Download size={16} />
                 <span>تحميل المستند الموثق (PDF)</span>
@@ -1302,7 +1597,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
               {/* 3. Start Over Button (keeps current files) */}
               <button
                 onClick={onReset}
-                className="flex items-center justify-center gap-2 w-full bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 py-3.5 px-6 rounded-2xl font-bold text-xs transition-all cursor-pointer shadow-xs"
+                className="flex items-center justify-center gap-2 w-full bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 hover:border-slate-300 py-3.5 px-6 rounded-2xl font-bold text-xs transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98] cursor-pointer shadow-xs"
               >
                 <RefreshCcw size={15} />
                 <span>البدء من جديد (مع نفس الملفات)</span>
@@ -1311,7 +1606,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
               {/* 4. Start Fresh with new files */}
               <button
                 onClick={() => setShowFreshConfirmModal(true)}
-                className="flex items-center justify-center gap-2 w-full bg-slate-100 hover:bg-slate-200 text-slate-600 py-3 rounded-2xl font-bold text-xs transition-colors cursor-pointer"
+                className="flex items-center justify-center gap-2 w-full bg-slate-100 hover:bg-slate-200 text-slate-600 py-3 rounded-2xl font-bold text-xs transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98] cursor-pointer"
               >
                 <FilePlus size={15} />
                 <span>بدء ملف جديد كلياً</span>
