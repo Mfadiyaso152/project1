@@ -59,7 +59,7 @@ const FileUpload: React.FC<FileUploadProps> = ({
       <div
         onClick={handleClick}
         className={`
-          relative flex flex-col items-center justify-center w-full min-h-[9.5rem] 
+          wq-dropzone relative flex flex-col items-center justify-center w-full min-h-[9.5rem] 
           border-2 border-dashed rounded-2xl transition-all duration-300 overflow-hidden
           ${hasValue 
             ? 'border-blue-500 bg-blue-50/40 shadow-[0_4px_20px_rgba(37,99,235,0.06)]' 

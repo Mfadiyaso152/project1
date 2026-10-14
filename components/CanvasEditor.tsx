@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
+import ReactDOM from 'react-dom';
 import { jsPDF } from 'jspdf';
 import { DocumentState, StampPosition, User } from '../types';
 import { 
@@ -93,6 +94,9 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     return { w, h };
   }, []);
 
+  const disabledStampPagesRef = useRef<Set<number>>(new Set());
+  const disabledSigPagesRef = useRef<Set<number>>(new Set());
+
   // Standalone computation of initial default stamp placement (zero dependency on state to avoid loops)
   const computeDefaultStamp = useCallback((): StampPosition => {
     const { w, h } = getSafeDimensions();
@@ -101,8 +105,8 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     const defaultY = Math.max(10, Math.round(h - size - 36));
     const x = Math.max(8, Math.min(defaultX, w - size - 8));
     const y = Math.max(8, Math.min(defaultY, h - size - 8));
-    return { x, y, size, enabled: !!documents.stamp };
-  }, [getSafeDimensions, documents.stamp]);
+    return { x, y, size, enabled: true };
+  }, [getSafeDimensions]);
 
   // Standalone computation of initial default signature placement (zero dependency on state to avoid loops)
   const computeDefaultSignature = useCallback((): StampPosition => {
@@ -112,8 +116,8 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     const defaultY = Math.max(10, Math.round(h - size - 36));
     const x = Math.max(8, Math.min(defaultX, w - size - 8));
     const y = Math.max(8, Math.min(defaultY, h - size - 8));
-    return { x, y, size, enabled: !!documents.signature };
-  }, [getSafeDimensions, documents.signature]);
+    return { x, y, size, enabled: true };
+  }, [getSafeDimensions]);
 
   const getSafeStampConfig = useCallback((pageIdx: number): StampPosition => {
     const saved = stampConfigs[pageIdx];
@@ -137,7 +141,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         if (!next[i]) {
           next[i] = computeDefaultStamp();
           changed = true;
-        } else if (documents.stamp && next[i].enabled === false && prev[i] === undefined) {
+        } else if (documents.stamp && !next[i].enabled && !disabledStampPagesRef.current.has(i)) {
           next[i] = { ...next[i], enabled: true };
           changed = true;
         }
@@ -152,7 +156,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         if (!next[i]) {
           next[i] = computeDefaultSignature();
           changed = true;
-        } else if (documents.signature && next[i].enabled === false && prev[i] === undefined) {
+        } else if (documents.signature && !next[i].enabled && !disabledSigPagesRef.current.has(i)) {
           next[i] = { ...next[i], enabled: true };
           changed = true;
         }
@@ -168,11 +172,17 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
   const toggleStampForPage = (pageIdx: number) => {
     setStampConfigs(prev => {
       const current = getSafeStampConfig(pageIdx);
+      const nextEnabled = !current.enabled;
+      if (!nextEnabled) {
+        disabledStampPagesRef.current.add(pageIdx);
+      } else {
+        disabledStampPagesRef.current.delete(pageIdx);
+      }
       return {
         ...prev,
         [pageIdx]: {
           ...current,
-          enabled: !current.enabled
+          enabled: nextEnabled
         }
       };
     });
@@ -182,11 +192,17 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
   const toggleSignatureForPage = (pageIdx: number) => {
     setSignatureConfigs(prev => {
       const current = getSafeSignatureConfig(pageIdx);
+      const nextEnabled = !current.enabled;
+      if (!nextEnabled) {
+        disabledSigPagesRef.current.add(pageIdx);
+      } else {
+        disabledSigPagesRef.current.delete(pageIdx);
+      }
       return {
         ...prev,
         [pageIdx]: {
           ...current,
-          enabled: !current.enabled
+          enabled: nextEnabled
         }
       };
     });
@@ -194,6 +210,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
 
   // Apply Stamp Presets
   const applyStampPreset = (preset: 'all' | 'first' | 'last' | 'current' | 'none') => {
+    disabledStampPagesRef.current.clear();
     setStampConfigs(prev => {
       const updated = { ...prev };
       for (let i = 0; i < totalPages; i++) {
@@ -205,6 +222,9 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         else if (preset === 'current') shouldEnable = (i === currentPageIndex);
         else if (preset === 'none') shouldEnable = false;
 
+        if (!shouldEnable) {
+          disabledStampPagesRef.current.add(i);
+        }
         updated[i] = { ...existing, enabled: shouldEnable };
       }
       return updated;
@@ -213,6 +233,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
 
   // Apply Signature Presets
   const applySignaturePreset = (preset: 'all' | 'first' | 'last' | 'current' | 'none') => {
+    disabledSigPagesRef.current.clear();
     setSignatureConfigs(prev => {
       const updated = { ...prev };
       for (let i = 0; i < totalPages; i++) {
@@ -224,6 +245,9 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         else if (preset === 'current') shouldEnable = (i === currentPageIndex);
         else if (preset === 'none') shouldEnable = false;
 
+        if (!shouldEnable) {
+          disabledSigPagesRef.current.add(i);
+        }
         updated[i] = { ...existing, enabled: shouldEnable };
       }
       return updated;
@@ -450,9 +474,11 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     }
     // Ensure enabled is true
     if (type === 'stamp') {
+      disabledStampPagesRef.current.clear();
       applyStampPreset('all');
       showToast('تم إدراج الختم المحفوظ وتثبيته في الموضع بنجاح ✅');
     } else {
+      disabledSigPagesRef.current.clear();
       applySignaturePreset('all');
       showToast('تم إدراج التوقيع المحفوظ وتثبيته في الموضع بنجاح ✅');
     }
@@ -790,7 +816,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
 
   return (
     <div 
-      className="flex flex-col lg:flex-row gap-8 items-start justify-center max-w-5xl mx-auto w-full animate-page-enter text-right relative"
+      className="wq-editor-layout flex flex-col lg:flex-row gap-8 items-start justify-center max-w-6xl mx-auto w-full text-right relative px-2 sm:px-4"
       dir="rtl"
       onMouseMove={handleMouseMove}
       onTouchMove={handleTouchMove}
@@ -798,13 +824,14 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
       onTouchEnd={handleEndDrag}
     >
       {/* Toast Notification */}
-      {toastMessage && (
-        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 animate-toast-drop pointer-events-none">
-          <div className="bg-slate-900/90 text-white px-5 py-3 rounded-2xl shadow-2xl text-xs font-black backdrop-blur-2xl flex items-center gap-2.5 border border-slate-700/80">
+      {toastMessage && ReactDOM.createPortal(
+        <div className="fixed top-5 left-0 right-0 z-[9999] flex justify-center pointer-events-none px-4">
+          <div className="bg-slate-900/90 text-white px-5 py-3 rounded-2xl shadow-2xl text-xs font-black backdrop-blur-2xl flex items-center gap-2.5 border border-slate-700/80 pointer-events-auto">
             <Check size={16} className="text-emerald-400" />
             <span>{toastMessage}</span>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Hidden File Inputs for in-editor upload */}
@@ -837,7 +864,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
       />
 
       {/* Central Canvas View */}
-      <div className="flex-1 w-full flex flex-col items-center">
+      <div className="wq-editor-preview flex-1 w-full flex flex-col items-center">
         
         {/* Top Multi-page Navigation Bar */}
         {totalPages > 1 && (
@@ -978,10 +1005,10 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
       </div>
 
       {/* Control Cards Sidebar */}
-      <div className="w-full lg:w-96 flex flex-col gap-4">
+      <div className="wq-editor-controls w-full lg:w-[380px] shrink-0 flex flex-col gap-4">
 
         {/* 0. OFFICIAL INSTITUTION PAPER (TEMPLATE / LETTERHEAD) CARD */}
-        <div className="bg-white border border-slate-200/90 p-5 rounded-3xl shadow-sm flex flex-col gap-3.5 animate-fade-in">
+        <div className="wq-panel bg-white border border-slate-200/90 p-5 rounded-3xl shadow-sm flex flex-col gap-3.5 animate-fade-in">
           <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
             <div className="flex items-center gap-2">
               <div className="w-7 h-7 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
@@ -1091,7 +1118,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
 
         {/* 1. STAMP MANAGEMENT CARD */}
         {documents.stamp ? (
-          <div className="bg-white border border-slate-200/90 p-5 rounded-3xl shadow-sm flex flex-col gap-3.5 animate-fade-in">
+          <div className="wq-panel bg-white border border-slate-200/90 p-5 rounded-3xl shadow-sm flex flex-col gap-3.5 animate-fade-in">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
               <div className="flex items-center gap-2">
                 <div className="w-7 h-7 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
@@ -1249,7 +1276,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
           </div>
         ) : (
           /* Card if stamp is not uploaded yet */
-          <div className="bg-white border border-dashed border-blue-200 p-5 rounded-3xl shadow-sm flex flex-col gap-3 animate-fade-in">
+          <div className="wq-panel bg-white border border-dashed border-blue-200 p-5 rounded-3xl shadow-sm flex flex-col gap-3 animate-fade-in">
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
                 <Stamp size={18} />
@@ -1285,7 +1312,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
 
         {/* 2. SIGNATURE MANAGEMENT CARD */}
         {documents.signature ? (
-          <div className="bg-white border border-slate-200/90 p-5 rounded-3xl shadow-sm flex flex-col gap-3.5 animate-fade-in">
+          <div className="wq-panel bg-white border border-slate-200/90 p-5 rounded-3xl shadow-sm flex flex-col gap-3.5 animate-fade-in">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
               <div className="flex items-center gap-2">
                 <div className="w-7 h-7 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
@@ -1453,7 +1480,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
           </div>
         ) : (
           /* Card if signature is not uploaded yet */
-          <div className="bg-white border border-dashed border-indigo-200 p-5 rounded-3xl shadow-sm flex flex-col gap-3 animate-fade-in">
+          <div className="wq-panel bg-white border border-dashed border-indigo-200 p-5 rounded-3xl shadow-sm flex flex-col gap-3 animate-fade-in">
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
                 <PenTool size={18} />

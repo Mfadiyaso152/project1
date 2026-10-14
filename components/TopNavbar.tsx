@@ -14,6 +14,8 @@ import {
   FolderOpen
 } from 'lucide-react';
 import { User, Step } from '../types';
+import { WathiqLogoIcon } from './WathiqLogoIcon';
+import { Logo } from './Logo';
 
 interface TopNavbarProps {
   currentUser: User | null;
@@ -43,17 +45,11 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
           
           {/* Logo & Desktop Nav */}
           <div className="flex items-center gap-6 sm:gap-8">
-            <div 
+            <Logo 
               onClick={() => handleLinkClick(currentUser ? Step.UPLOAD : Step.LANDING)}
-              className="flex items-center gap-2 cursor-pointer select-none group"
-            >
-              <div className="p-1.5 bg-teal-500 text-white rounded-xl shadow-xs group-hover:scale-105 transition-transform">
-                <FileText size={18} className="stroke-[2.5]" />
-              </div>
-              <span className="font-black text-base sm:text-lg tracking-tight text-slate-900">
-                وثيق | Wathiq
-              </span>
-            </div>
+              imageClassName="w-8 h-8 object-contain transition-transform duration-300 group-hover:scale-105"
+              textSize="font-black text-base sm:text-lg tracking-tight text-slate-900"
+            />
 
             {/* Desktop Nav Items */}
             <nav className="hidden md:flex items-center gap-5 text-xs sm:text-sm font-bold text-slate-600">

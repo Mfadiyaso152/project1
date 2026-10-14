@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import ReactDOM from 'react-dom';
 import { 
   FileText, 
   Stamp, 
@@ -6,28 +7,28 @@ import {
   ArrowLeft, 
   PenTool, 
   Layers, 
-  BookmarkCheck,
-  User as UserIcon,
-  CheckCircle2,
+  CheckCircle2, 
   AlertCircle,
-  Cloud,
-  FolderOpen
+  Settings,
+  LogOut,
+  BookmarkCheck
 } from 'lucide-react';
 import FileUpload from './components/FileUpload';
 import CanvasEditor from './components/CanvasEditor';
 import SignaturePad from './components/SignaturePad';
 import { LandingView } from './components/LandingView';
-import { AuthFlow } from './components/AuthFlow';
 import { AccountView } from './components/AccountView';
+import { BottomBar } from './components/BottomBar';
 import { DocumentState, Step, User } from './types';
+import { Logo } from './components/Logo';
+import './components/wathiq-brand.css';
 import { 
   getCurrentUser, 
   setCurrentUser, 
   canUserProcessFile, 
-  saveUserAsset, 
-  getUserAsset,
   fetchUserFromFirestoreByEmail,
-  subscribeToUserAssets 
+  fetchUserAssetsFromFirestore,
+  signInWithFirebaseGoogle
 } from './authService';
 
 const App: React.FC = () => {
@@ -69,61 +70,17 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
-    // Initial cloud sync on mount
     const initialSync = async () => {
       const u = getCurrentUser();
       if (u?.email) {
         const cloudUser = await fetchUserFromFirestoreByEmail(u.email);
         if (cloudUser) {
           setUser(cloudUser);
-          // Pre-populate saved assets if docs are empty
-          setDocs(prev => {
-            const next = { ...prev };
-            let changed = false;
-            if (!next.template && cloudUser.savedAssets?.template) {
-              next.template = cloudUser.savedAssets.template;
-              next.templatePages = [cloudUser.savedAssets.template];
-              changed = true;
-            }
-            if (!next.stamp && cloudUser.savedAssets?.stamp) {
-              next.stamp = cloudUser.savedAssets.stamp;
-              changed = true;
-            }
-            if (!next.signature && cloudUser.savedAssets?.signature) {
-              next.signature = cloudUser.savedAssets.signature;
-              changed = true;
-            }
-            return changed ? next : prev;
-          });
         }
       }
     };
     initialSync();
   }, []);
-
-  // Real-time Firestore sync: updates assets across devices instantly
-  useEffect(() => {
-    if (!currentUser?.email) return;
-
-    const email = currentUser.email;
-    const unsubscribe = subscribeToUserAssets(email, (assets) => {
-      setUser(prev => {
-        if (!prev) return null;
-        const oldAssets = prev.savedAssets;
-        const isSame = 
-          oldAssets?.template === assets.template &&
-          oldAssets?.stamp === assets.stamp &&
-          oldAssets?.signature === assets.signature;
-          
-        if (isSame) return prev;
-        return {
-          ...prev,
-          savedAssets: assets
-        };
-      });
-    });
-    return () => unsubscribe();
-  }, [currentUser?.email]);
 
   // PDF.js Page Extraction
   const loadPdfPages = async (file: File): Promise<string[]> => {
@@ -259,59 +216,100 @@ const App: React.FC = () => {
     else setDocs(prev => ({ ...prev, [type]: null }));
   };
 
-  const handleUseSavedAsset = async (type: 'template' | 'stamp' | 'signature') => {
-    if (!currentUser) {
-      showToast('يرجى تسجيل الدخول أولاً لاستخدام الملفات المحفوظة', 'info');
-      return;
-    }
-
-    let savedData = getUserAsset(type, currentUser);
-
-    // If not found in current memory, query Firestore directly as fallback
-    if (!savedData && currentUser.email) {
-      const freshUser = await fetchUserFromFirestoreByEmail(currentUser.email);
-      if (freshUser) {
-        setUser(freshUser);
-        savedData = getUserAsset(type, freshUser);
+  const handleDirectGoogleLogin = async () => {
+    setLoadingText('جاري تسجيل الدخول بواسطة جوجل...');
+    setLoadingPdf(true);
+    try {
+      const res = await signInWithFirebaseGoogle();
+      if (res.success && res.user) {
+        setUser(res.user);
+        setStep(Step.UPLOAD);
+        showToast('تم تسجيل الدخول بواسطة جوجل بنجاح ✨');
+      } else {
+        showToast(res.message || 'فشل تسجيل الدخول بواسطة جوجل', 'error');
       }
-    }
-
-    if (savedData) {
-      if (type === 'template') {
-        setDocs(prev => ({
-          ...prev,
-          template: savedData,
-          templatePages: [savedData]
-        }));
-        showToast('تم استيراد الورقة الرسمية المحفوظة بنجاح ✅');
-      } else if (type === 'stamp') {
-        setDocs(prev => ({ ...prev, stamp: savedData }));
-        showToast('تم استيراد الختم المحفوظ بنجاح ✅');
-      } else if (type === 'signature') {
-        setDocs(prev => ({ ...prev, signature: savedData }));
-        showToast('تم استيراد التوقيع المحفوظ بنجاح ✅');
-      }
-    } else {
-      showToast(`لا يوجد ${type === 'template' ? 'ورقة رسمية' : type === 'stamp' ? 'ختم' : 'توقيع'} محفوظ حالياً في حسابك`, 'info');
+    } catch (err: any) {
+      showToast('حدث خطأ أثناء تسجيل الدخول: ' + (err?.message || err), 'error');
+    } finally {
+      setLoadingPdf(false);
     }
   };
 
-  const handleSaveCurrentAssetToAccount = async (type: 'template' | 'stamp' | 'signature') => {
-    if (!currentUser) {
-      showToast('يرجى تسجيل الدخول لحفظ أصولك', 'info');
+  const handleImportAsset = async (type: 'template' | 'stamp' | 'signature' | 'all') => {
+    if (!currentUser?.email) {
+      showToast('يرجى تسجيل الدخول بحسابك لاستيراد أصولك المحفوظة', 'info');
+      handleDirectGoogleLogin();
       return;
     }
-    const currentAsset = type === 'template' ? docs.template : docs[type];
-    if (!currentAsset) {
-      showToast(`يرجى رفع ${type === 'template' ? 'الورقة الرسمية' : type === 'stamp' ? 'الختم' : 'التوقيع'} أولاً لحفظه`, 'info');
-      return;
-    }
+
+    let currentAssets = currentUser.savedAssets || { template: null, stamp: null, signature: null };
     try {
-      const updated = await saveUserAsset(type, currentAsset, currentUser);
-      setUser(updated);
-      showToast(`تم حفظ ${type === 'template' ? 'الورقة الرسمية' : type === 'stamp' ? 'الختم' : 'التوقيع'} وربطه بحسابك بنجاح ✅`);
-    } catch (e: any) {
-      showToast('خطأ أثناء الحفظ: ' + (e?.message || e), 'error');
+      const fresh = await fetchUserAssetsFromFirestore(currentUser.email);
+      if (fresh && (fresh.template || fresh.stamp || fresh.signature)) {
+        currentAssets = { ...currentAssets, ...fresh };
+        const updated = { ...currentUser, savedAssets: currentAssets };
+        setCurrentUser(updated);
+        setUser(updated);
+      }
+    } catch (e) {
+      console.warn('Could not refresh assets:', e);
+    }
+
+    if (type === 'template') {
+      if (currentAssets.template) {
+        setDocs(prev => ({
+          ...prev,
+          template: currentAssets.template,
+          templatePages: [currentAssets.template!]
+        }));
+        showToast('تم استيراد ورقة المؤسسة من الأصول المحفوظة بنجاح ✅');
+      } else {
+        showToast('لا توجد ورقة مؤسسة محفوظة بحسابك. اضغط زر الإعدادات بالأعلى لحفظها', 'info');
+      }
+    } else if (type === 'stamp') {
+      if (currentAssets.stamp) {
+        setDocs(prev => ({
+          ...prev,
+          stamp: currentAssets.stamp
+        }));
+        showToast('تم استيراد ختم المؤسسة من الأصول المحفوظة بنجاح ✅');
+      } else {
+        showToast('لا يوجد ختم محفوظ بحسابك. اضغط زر الإعدادات بالأعلى لحفظه', 'info');
+      }
+    } else if (type === 'signature') {
+      if (currentAssets.signature) {
+        setDocs(prev => ({
+          ...prev,
+          signature: currentAssets.signature
+        }));
+        showToast('تم استيراد التوقيع الرسمي من الأصول المحفوظة بنجاح ✅');
+      } else {
+        showToast('لا يوجد توقيع محفوظ بحسابك. اضغط زر الإعدادات بالأعلى لحفظه', 'info');
+      }
+    } else if (type === 'all') {
+      let count = 0;
+      setDocs(prev => {
+        const next = { ...prev };
+        if (currentAssets.template) {
+          next.template = currentAssets.template;
+          next.templatePages = [currentAssets.template];
+          count++;
+        }
+        if (currentAssets.stamp) {
+          next.stamp = currentAssets.stamp;
+          count++;
+        }
+        if (currentAssets.signature) {
+          next.signature = currentAssets.signature;
+          count++;
+        }
+        return next;
+      });
+      if (count > 0) {
+        showToast(`تم استيراد ${count} أصول محفوظة من حسابك بنجاح ✨`);
+      } else {
+        showToast('لم يتم العثور على أصول محفوظة في حسابك بعد. اضغط زر الإعدادات لإضافتها', 'info');
+      }
     }
   };
 
@@ -319,10 +317,10 @@ const App: React.FC = () => {
     const check = canUserProcessFile(currentUser);
     if (!check.allowed) {
       showToast(check.reason || 'يرجى تسجيل الدخول أولاً', 'error');
+      handleDirectGoogleLogin();
       return;
     }
 
-    // Auto-populate saved assets from user account if not explicitly set
     setDocs(prev => {
       const next = { ...prev };
       if (!next.stamp && currentUser?.savedAssets?.stamp) {
@@ -361,25 +359,18 @@ const App: React.FC = () => {
     showToast('تم بدء معاملة جديدة وتفريغ الملفات بنجاح ✨');
   };
 
-  // Landing Flow
+  // Landing Flow -> Landing Page has BottomBar
   if (step === Step.LANDING) {
-    return <LandingView onStart={() => setStep(Step.AUTH)} />;
+    return <LandingView onStart={handleDirectGoogleLogin} />;
   }
 
-  // Auth Flow
+  // Auth Flow -> Fallback to direct Google login
   if (step === Step.AUTH) {
-    return (
-      <AuthFlow 
-        onSuccess={(u) => { 
-          setUser(u); 
-          setStep(Step.UPLOAD); 
-        }}
-        onCancel={() => setStep(currentUser ? Step.UPLOAD : Step.LANDING)}
-      />
-    );
+    handleDirectGoogleLogin();
+    return null;
   }
 
-  // Dedicated Account Page (Name, Email & Cloud Assets ONLY)
+  // Dedicated Account Page (Asset Management ONLY)
   if (step === Step.ACCOUNT && currentUser) {
     return (
       <AccountView
@@ -398,7 +389,7 @@ const App: React.FC = () => {
   const canProceed = docs.originalPages.length > 0 || !!docs.original;
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] text-slate-900 flex flex-col font-sans relative" dir="rtl">
+    <div className="wq-workspace min-h-screen bg-[#f8fafc] text-slate-900 flex flex-col font-sans relative" dir="rtl">
       
       {/* Background ambient luxury lighting */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
@@ -406,12 +397,10 @@ const App: React.FC = () => {
         <div className="absolute top-1/3 -left-40 w-[500px] h-[500px] bg-indigo-500/5 rounded-full blur-[140px]" />
       </div>
 
-      {/* LUXURY BORDERLESS LOADING OVERLAY (NO SQUARE BOX) */}
+      {/* LUXURY BORDERLESS LOADING OVERLAY */}
       {loadingPdf && (
         <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-slate-950/70 backdrop-blur-md animate-fade-in">
           <div className="relative flex flex-col items-center justify-center gap-6 select-none">
-            
-            {/* Multi-Ring Rotating Luxury Seal */}
             <div className="relative flex items-center justify-center w-32 h-32">
               <div className="absolute inset-0 border-2 border-dashed border-blue-400/50 rounded-full animate-spin-slow" />
               <div className="absolute inset-2 border border-amber-300/60 rounded-full animate-spin-reverse-slow" />
@@ -419,30 +408,23 @@ const App: React.FC = () => {
                 <FileText size={28} className="text-blue-600" />
               </div>
             </div>
-
-            {/* Shimmering Text */}
             <div className="flex flex-col items-center text-center gap-1.5">
-              <span className="text-3xl font-black tracking-widest text-white">
-                وثـيـق
-              </span>
-              <p className="text-xs font-bold text-slate-200">
-                {loadingText}
-              </p>
+              <span className="text-3xl font-black tracking-widest text-white">وثـيـق</span>
+              <p className="text-xs font-bold text-slate-200">{loadingText}</p>
               <div className="flex items-center gap-1 mt-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
                 <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse delay-150" />
                 <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse delay-300" />
               </div>
             </div>
-
           </div>
         </div>
       )}
 
-      {/* Toast Notification - Centered at Top with Modern Motion */}
-      {notification && (
-        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 animate-toast-drop pointer-events-none">
-          <div className={`px-5 py-3 rounded-2xl shadow-2xl backdrop-blur-2xl border text-xs font-black flex items-center gap-3 ${
+      {/* Toast Notification */}
+      {notification && ReactDOM.createPortal(
+        <div className="fixed top-5 left-0 right-0 z-[9999] flex justify-center pointer-events-none px-4">
+          <div className={`px-5 py-3 rounded-2xl shadow-2xl backdrop-blur-2xl border text-xs font-black flex items-center gap-3 pointer-events-auto ${
             notification.type === 'error'
               ? 'bg-rose-950/90 text-rose-100 border-rose-500/30 shadow-rose-950/30'
               : notification.type === 'info'
@@ -452,226 +434,206 @@ const App: React.FC = () => {
             <CheckCircle2 size={18} className={notification.type === 'error' ? 'text-rose-400' : notification.type === 'info' ? 'text-amber-400' : 'text-emerald-400'} />
             <span className="tracking-wide">{notification.msg}</span>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
-      {/* Top Bar: Profile Button */}
-      <div className="absolute top-5 left-6 z-40 flex items-center gap-2.5">
+      {/* Top Header Bar matching reference image layout */}
+      <header className="w-full px-4 pt-6 pb-2 flex items-center justify-between relative z-20">
         <button
           onClick={() => setStep(Step.ACCOUNT)}
-          className="flex items-center gap-2 bg-white/95 hover:bg-white active:bg-slate-100 border border-slate-200/90 hover:border-blue-400 px-3.5 py-1.5 rounded-full shadow-xs hover:shadow-md backdrop-blur-md transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 active:scale-95 cursor-pointer group"
-          title="عرض الحساب والأصول المحفوظة"
+          className="w-10 h-10 rounded-full bg-white hover:bg-slate-50 border border-slate-200/90 hover:border-blue-400 flex items-center justify-center shadow-xs transition-all cursor-pointer text-slate-700 hover:text-blue-600"
+          title="حفظ الأصول"
         >
-          {currentUser?.avatar ? (
-            <img src={currentUser.avatar} alt="Avatar" className="w-6 h-6 rounded-full object-cover border border-blue-500/40" />
-          ) : (
-            <div className="w-6 h-6 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center">
-              <UserIcon size={14} />
-            </div>
-          )}
-          <span className="text-xs font-bold text-slate-700 group-hover:text-blue-600 transition-colors">
-            {currentUser?.name || 'حسابي'}
-          </span>
+          <Settings size={20} />
         </button>
-      </div>
+
+        <Logo />
+      </header>
 
       {/* MAIN WORKSPACE */}
-      <main className="relative z-10 max-w-5xl mx-auto px-4 pt-16 pb-20 flex-1 w-full animate-fade-in-up">
+      <main className="wq-workspace-main relative z-10 pt-6 pb-20 flex-1 w-full animate-fade-in-up">
         
         {step === Step.UPLOAD && (
-          <div className="flex flex-col">
-            
-            {/* HERO BRAND TITLE: WORD "وثيق" STANDS CLEAN & PROMINENT */}
-            <div className="flex flex-col items-center text-center mb-10">
-              <h1 className="text-6xl sm:text-7xl font-black tracking-tight text-slate-900 drop-shadow-xs">
-                وثـيـق
-              </h1>
+          <div className="flex flex-col w-full min-h-[85vh] py-6 pb-16 relative overflow-hidden bg-[#F8FAFF]">
+            {/* Top Ribbon Strip */}
+            <div className="absolute top-0 left-0 right-0 w-full overflow-hidden pointer-events-none select-none z-0 h-44 sm:h-56 md:h-72">
+              <img 
+                src="/wathiq-background.png" 
+                alt="" 
+                className="w-full h-full object-cover object-top pointer-events-none" 
+              />
+              <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[#F8FAFF]/40 to-[#F8FAFF]" />
             </div>
 
-            {/* TWO MAIN CARDS FOR UPLOAD */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-              
-              {/* 1. Core Documents Card */}
-              <div className="bg-white border border-slate-200/90 p-6 sm:p-7 rounded-3xl shadow-sm hover:shadow-md transition-shadow flex flex-col gap-6">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-3.5">
-                  <h3 className="font-black text-base sm:text-lg text-slate-900 flex items-center gap-2.5">
-                    <div className="w-2.5 h-6 bg-gradient-to-b from-blue-600 to-indigo-600 rounded-full" />
-                    <span>المستندات الأساسية</span>
-                  </h3>
-                </div>
-                
-                <div className="flex flex-col gap-6">
-                  {/* Original Document */}
-                  <FileUpload
-                    label="المستند الأصلي (المعاملة)"
-                    subLabel="PDF أو صور متعددة (مطلوب)"
-                    accept="image/*,application/pdf"
-                    multiple={true}
-                    value={docs.originalPages.length > 0 ? docs.originalPages : docs.original}
-                    onChange={handleOriginalUpload}
-                    onClear={() => clearFile('original')}
-                    icon={<FileText size={32} />}
-                  />
+            {/* Bottom Ribbon Strip (Reversed: inverted/flipped) */}
+            <div className="absolute bottom-0 left-0 right-0 w-full overflow-hidden pointer-events-none select-none z-0 h-44 sm:h-56 md:h-72">
+              <img 
+                src="/wathiq-background.png" 
+                alt="" 
+                className="w-full h-full object-cover object-bottom pointer-events-none transform scale-x-[-1] scale-y-[-1]" 
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-transparent via-[#F8FAFF]/40 to-[#F8FAFF]" />
+            </div>
 
-                  {/* Template (Official Letterhead) */}
-                  <div className="flex flex-col gap-2">
+            <div className="wq-upload-container relative z-10">
+              {/* TWO MAIN CARDS FOR UPLOAD (Matching reference image layout) */}
+              <div className="wq-upload-grid grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                
+                {/* 1. Core Documents Card */}
+                <div className="wq-panel bg-white border border-slate-200/90 p-6 sm:p-7 rounded-3xl shadow-sm hover:shadow-md transition-shadow flex flex-col gap-6">
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-3.5">
+                    <h3 className="font-black text-base sm:text-lg text-slate-900 flex items-center gap-2.5">
+                      <div className="w-2.5 h-6 bg-gradient-to-b from-blue-600 to-indigo-600 rounded-full" />
+                      <span>المستندات الأساسية</span>
+                    </h3>
+                    <button
+                      onClick={() => handleImportAsset('all')}
+                      className="p-2 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all cursor-pointer"
+                      title="استيراد جميع الأصول المحفوظة بالحساب"
+                    >
+                      <BookmarkCheck size={20} />
+                    </button>
+                  </div>
+                  
+                  <div className="flex flex-col gap-6">
+                    {/* Original Document */}
                     <FileUpload
-                      label="ورقة المؤسسة الرسمية"
-                      subLabel="ملف PDF أو صورة (خلفية للخطابات)"
+                      label="المستند الأصلي (المعاملة)"
+                      subLabel="PDF أو صور متعددة (مطلوب)"
                       accept="image/*,application/pdf"
                       multiple={true}
-                      value={docs.templatePages.length > 0 ? docs.templatePages : docs.template}
-                      onChange={handleTemplateUpload}
-                      onClear={() => clearFile('template')}
-                      icon={<ImageIcon size={32} />}
+                      value={docs.originalPages.length > 0 ? docs.originalPages : docs.original}
+                      onChange={handleOriginalUpload}
+                      onClear={() => clearFile('original')}
+                      icon={<FileText size={32} />}
                     />
-                    
-                    {/* Saved Asset Buttons */}
-                    <div className="flex items-center justify-between gap-2 mt-1">
-                      <button 
-                        type="button"
-                        onClick={() => handleUseSavedAsset('template')} 
-                        className="text-xs text-blue-600 hover:text-blue-700 font-bold hover:underline flex items-center gap-1.5 cursor-pointer"
-                      >
-                        <Layers size={14} />
-                        <span>استخدام الورقة الرسمية المحفوظة</span>
-                      </button>
 
-                      {docs.template && (
-                        <button
-                          type="button"
-                          onClick={() => handleSaveCurrentAssetToAccount('template')}
-                          className="text-[11px] text-slate-600 hover:text-blue-700 font-bold flex items-center gap-1 cursor-pointer bg-slate-50 hover:bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200"
+                    {/* Template (Official Letterhead) */}
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-xs font-bold text-slate-700">ورقة المؤسسة الرسمية</h4>
+                        <button 
+                          onClick={() => handleImportAsset('template')} 
+                          className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all cursor-pointer"
+                          title="استيراد ورقة المؤسسة من الأصول المحفوظة"
                         >
-                          <BookmarkCheck size={12} />
-                          <span>حفظ كافتراضي</span>
+                          <BookmarkCheck size={18} />
                         </button>
-                      )}
+                      </div>
+                      <FileUpload
+                        label=""
+                        subLabel="ملف PDF أو صورة (خلفية للخطابات)"
+                        accept="image/*,application/pdf"
+                        multiple={true}
+                        value={docs.templatePages.length > 0 ? docs.templatePages : docs.template}
+                        onChange={handleTemplateUpload}
+                        onClear={() => clearFile('template')}
+                        icon={<ImageIcon size={32} />}
+                      />
                     </div>
                   </div>
                 </div>
-              </div>
 
-              {/* 2. Stamps and Signatures Card */}
-              <div className="bg-white border border-slate-200/90 p-6 sm:p-7 rounded-3xl shadow-sm hover:shadow-md transition-shadow flex flex-col gap-6">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-3.5">
-                  <h3 className="font-black text-base sm:text-lg text-slate-900 flex items-center gap-2.5">
-                    <div className="w-2.5 h-6 bg-gradient-to-b from-amber-500 to-amber-600 rounded-full" />
-                    <span>الأختام والتواقيع (اختياري)</span>
-                  </h3>
-                </div>
-
-                <div className="flex flex-col gap-6">
-                  {/* Official Stamp */}
-                  <div className="flex flex-col gap-2">
-                    <FileUpload
-                      label="ختم المؤسسة"
-                      subLabel="صورة مفرغة PNG أو JPEG"
-                      accept="image/png, image/jpeg, application/pdf"
-                      value={docs.stamp}
-                      onChange={(f) => handleFile('stamp', f as File)}
-                      onClear={() => clearFile('stamp')}
-                      icon={<Stamp size={32} />}
-                    />
-                    
-                    <div className="flex items-center justify-between gap-2 mt-1">
-                      <button 
-                        type="button"
-                        onClick={() => handleUseSavedAsset('stamp')} 
-                        className="text-xs text-blue-600 hover:text-blue-700 font-bold hover:underline flex items-center gap-1.5 cursor-pointer"
-                      >
-                        <Stamp size={14} />
-                        <span>استخدام الختم المحفوظ</span>
-                      </button>
-
-                      {docs.stamp && (
-                        <button
-                          type="button"
-                          onClick={() => handleSaveCurrentAssetToAccount('stamp')}
-                          className="text-[11px] text-slate-600 hover:text-blue-700 font-bold flex items-center gap-1 cursor-pointer bg-slate-50 hover:bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200"
-                        >
-                          <BookmarkCheck size={12} />
-                          <span>حفظ كافتراضي</span>
-                        </button>
-                      )}
-                    </div>
+                {/* 2. Stamps and Signatures Card */}
+                <div className="wq-panel bg-white border border-slate-200/90 p-6 sm:p-7 rounded-3xl shadow-sm hover:shadow-md transition-shadow flex flex-col gap-6">
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-3.5">
+                    <h3 className="font-black text-base sm:text-lg text-slate-900 flex items-center gap-2.5">
+                      <div className="w-2.5 h-6 bg-gradient-to-b from-amber-500 to-amber-600 rounded-full" />
+                      <span>الأختام والتواقيع (اختياري)</span>
+                    </h3>
                   </div>
 
-                  {/* Signature */}
-                  <div className="flex flex-col gap-2">
-                    <FileUpload
-                      label="التوقيع الرسمي"
-                      subLabel="صورة توقيع أو رسم حي"
-                      accept="image/png, image/jpeg, application/pdf"
-                      value={docs.signature}
-                      onChange={(f) => handleFile('signature', f as File)}
-                      onClear={() => clearFile('signature')}
-                      icon={<PenTool size={32} />}
-                    />
-                    
-                    <div className="flex flex-wrap items-center justify-between gap-2 mt-1">
-                      <div className="flex items-center gap-2">
+                  <div className="flex flex-col gap-6">
+                    {/* Official Stamp */}
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-xs font-bold text-slate-700">ختم المؤسسة</h4>
+                        <button 
+                          onClick={() => handleImportAsset('stamp')} 
+                          className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all cursor-pointer"
+                          title="استيراد ختم المؤسسة من الأصول المحفوظة"
+                        >
+                          <BookmarkCheck size={18} />
+                        </button>
+                      </div>
+                      <FileUpload
+                        label=""
+                        subLabel="صورة مفرغة PNG أو JPEG"
+                        accept="image/png, image/jpeg, application/pdf"
+                        value={docs.stamp}
+                        onChange={(f) => handleFile('stamp', f as File)}
+                        onClear={() => clearFile('stamp')}
+                        icon={<Stamp size={32} />}
+                      />
+                    </div>
+
+                    {/* Signature */}
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-xs font-bold text-slate-700">التوقيع الرسمي</h4>
+                        <button 
+                          onClick={() => handleImportAsset('signature')} 
+                          className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all cursor-pointer"
+                          title="استيراد التوقيع الرسمي من الأصول المحفوظة"
+                        >
+                          <BookmarkCheck size={18} />
+                        </button>
+                      </div>
+                      <FileUpload
+                        label=""
+                        subLabel="صورة توقيع أو رسم حي"
+                        accept="image/png, image/jpeg, application/pdf"
+                        value={docs.signature}
+                        onChange={(f) => handleFile('signature', f as File)}
+                        onClear={() => clearFile('signature')}
+                        icon={<PenTool size={32} />}
+                      />
+                      
+                      <div className="flex items-center justify-end mt-1">
                         <button 
                           type="button"
-                          onClick={() => handleUseSavedAsset('signature')} 
-                          className="text-xs text-blue-600 hover:text-blue-700 font-bold hover:underline flex items-center gap-1.5 cursor-pointer"
+                          onClick={() => setIsDrawingSignature(true)} 
+                          className="text-xs px-3.5 py-1.5 rounded-xl font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition-colors cursor-pointer flex items-center gap-1.5"
                         >
-                          <PenTool size={14} />
-                          <span>استخدام التوقيع المحفوظ</span>
+                          <span>ارسم توقيعك ✍️</span>
                         </button>
-
-                        {docs.signature && (
-                          <button
-                            type="button"
-                            onClick={() => handleSaveCurrentAssetToAccount('signature')}
-                            className="text-[11px] text-slate-600 hover:text-blue-700 font-bold flex items-center gap-1 cursor-pointer bg-slate-50 hover:bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200"
-                          >
-                            <BookmarkCheck size={12} />
-                            <span>حفظ</span>
-                          </button>
-                        )}
                       </div>
-
-                      <button 
-                        type="button"
-                        onClick={() => setIsDrawingSignature(true)} 
-                        className="text-xs px-3.5 py-1.5 rounded-xl font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition-colors cursor-pointer flex items-center gap-1.5"
-                      >
-                        <span>ارسم توقيعك ✍️</span>
-                      </button>
                     </div>
                   </div>
                 </div>
               </div>
-            </div>
 
-            {/* MAIN ACTION: PROCEED TO NOTARIZE & MERGE */}
-            <div className="flex justify-center mt-2">
-              <button
-                disabled={!canProceed}
-                onClick={handleProceedToEditor}
-                className={`flex items-center justify-center gap-3 px-12 py-4 rounded-2xl font-black text-base transition-all shadow-lg ${
-                  canProceed 
-                    ? 'bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-500 hover:to-indigo-600 text-white hover:scale-[1.02] active:scale-[0.98] cursor-pointer shadow-blue-600/20' 
-                    : 'bg-slate-200 text-slate-400 cursor-not-allowed opacity-60'
-                }`}
-              >
-                <span>المتابعة للدمج والتوثيق</span>
-                <ArrowLeft size={18} />
-              </button>
+              {/* MAIN ACTION: PROCEED TO NOTARIZE & MERGE */}
+              <div className="flex justify-center mt-2">
+                <button
+                  disabled={!canProceed}
+                  onClick={handleProceedToEditor}
+                  className={`flex items-center justify-center gap-3 px-12 py-4 rounded-2xl font-black text-base transition-all shadow-lg ${
+                    canProceed 
+                      ? 'bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-500 hover:to-indigo-600 text-white hover:scale-[1.02] active:scale-[0.98] cursor-pointer shadow-blue-600/20' 
+                      : 'bg-slate-200 text-slate-400 cursor-not-allowed opacity-60'
+                  }`}
+                >
+                  <span>المتابعة للدمج والتوثيق</span>
+                  <ArrowLeft size={18} />
+                </button>
+              </div>
             </div>
           </div>
         )}
 
         {/* EDITOR STEP */}
         {step === Step.EDITOR && (
-          <CanvasEditor 
-            documents={docs} 
-            onReset={handleStartOver}
-            onStartFresh={handleStartFresh}
-            currentUser={currentUser}
-            onUpdateDocs={setDocs}
-          />
+          <div className="w-full flex justify-center py-2 px-2 sm:px-4">
+            <CanvasEditor 
+              documents={docs} 
+              onReset={handleStartOver}
+              onStartFresh={handleStartFresh}
+              currentUser={currentUser}
+              onUpdateDocs={setDocs}
+            />
+          </div>
         )}
 
       </main>

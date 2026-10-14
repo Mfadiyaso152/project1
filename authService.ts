@@ -733,18 +733,33 @@ export const signInWithFirebaseGoogle = async (): Promise<{
     const cleanEmail = gUser.email.trim().toLowerCase();
     const docId = getDocId(cleanEmail);
 
-    // 1. Fetch user & cloud assets
-    let user = await fetchUserFromFirestoreByEmail(cleanEmail);
-    if (!user) {
-      // Check local storage
-      const localUsers = getStoredUsers();
-      const found = localUsers.find(u => u.email.toLowerCase() === cleanEmail);
-      if (found) user = found;
+    // Fast check local storage or existing stored users first
+    const localUsers = getStoredUsers();
+    let user = localUsers.find(u => u.email.toLowerCase() === cleanEmail);
+
+    // Try fetching from Firestore with a short timeout (e.g. 1.2s max) so it never hangs
+    try {
+      const firestoreUserPromise = fetchUserFromFirestoreByEmail(cleanEmail);
+      const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 1200));
+      const fetchedUser = await Promise.race([firestoreUserPromise, timeoutPromise]);
+      if (fetchedUser) {
+        user = fetchedUser;
+      }
+    } catch (e) {
+      // Ignore network timeout/error
     }
 
     if (!user) {
-      // Create new user
-      const cloudAssets = await fetchUserAssetsFromFirestore(cleanEmail);
+      // Create new user instantly with quick asset check or defaults
+      let cloudAssets = { template: null, stamp: null, signature: null };
+      try {
+        const assetsPromise = fetchUserAssetsFromFirestore(cleanEmail);
+        const timeoutPromise = new Promise<any>((resolve) => setTimeout(() => resolve({ template: null, stamp: null, signature: null }), 1200));
+        cloudAssets = await Promise.race([assetsPromise, timeoutPromise]);
+      } catch (e) {
+        // ignore
+      }
+
       user = {
         id: gUser.uid || 'usr_' + docId,
         email: cleanEmail,
@@ -772,9 +787,13 @@ export const signInWithFirebaseGoogle = async (): Promise<{
       return { success: false, message: 'تم إيقاف هذا الحساب مؤقتاً من قِبل الإدارة.' };
     }
 
-    await syncUserToFirestore(user);
+    // Save and sync in background (non-blocking)
+    saveStoredUsers([...localUsers.filter(u => u.email.toLowerCase() !== cleanEmail), user]);
     updateUserInDb(user);
     setCurrentUser(user);
+
+    // Sync to Firestore in background without awaiting blocking
+    syncUserToFirestore(user).catch(() => {});
 
     return {
       success: true,

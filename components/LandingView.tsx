@@ -1,99 +1,61 @@
 import React from 'react';
-import { ArrowLeft, ShieldCheck, FileText, Sparkles, CheckCircle2, Layers, PenTool, Stamp, Lock } from 'lucide-react';
+import { Layers, Stamp, PenTool, Download, Upload, Check, FileText, ArrowLeft, Play, User } from 'lucide-react';
+import { Logo } from './Logo';
+import './wathiq-brand.css';
 
-interface LandingViewProps {
-  onStart: () => void;
-}
-
+interface LandingViewProps { onStart: () => void }
+const features = [
+  { Icon: Layers, title: 'دمج المستندات', text: 'ادمج ملفاتك وصورك وورقة مؤسستك في مستند واحد.' },
+  { Icon: PenTool, title: 'الختم والتوقيع', text: 'أضف ختم المؤسسة وتوقيعك، واضبط موضعهما بسهولة.' },
+  { Icon: Download, title: 'تصدير PDF', text: 'صدّر مستندك النهائي بصيغة PDF جاهزة للمشاركة.' }
+];
+const steps = [
+  { Icon: Upload, title: 'ارفع ملفاتك', text: 'اختر مستندك وورقة مؤسستك.' },
+  { Icon: Stamp, title: 'أضف ختمك وتوقيعك', text: 'استخدم أصولك المحفوظة أو ارسم توقيعك.' },
+  { Icon: Download, title: 'صدّر مستندك', text: 'راجع الصفحات وحمّل ملف PDF.' }
+];
 export const LandingView: React.FC<LandingViewProps> = ({ onStart }) => {
+  const scrollTo = (id: string) => document.getElementById(id)?.scrollIntoView({
+    behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'
+  });
   return (
-    <div className="min-h-screen bg-[#f8fafc] text-slate-900 flex flex-col font-sans relative overflow-hidden" dir="rtl">
-      
-      {/* Ambient background glows */}
-      <div className="absolute top-0 right-0 w-full h-full overflow-hidden pointer-events-none z-0">
-        <div className="absolute -top-32 -right-32 w-[550px] h-[550px] bg-blue-500/10 rounded-full blur-[100px]" />
-        <div className="absolute top-1/2 -left-32 w-[600px] h-[600px] bg-indigo-500/10 rounded-full blur-[120px]" />
-      </div>
-
-      <div className="relative z-10 flex-1 flex flex-col">
-        {/* Simple Top Bar */}
-        <header className="px-6 py-6 flex items-center justify-between max-w-6xl mx-auto w-full">
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-700 p-[1px] shadow-md shadow-blue-500/20">
-              <div className="w-full h-full bg-white rounded-2xl flex items-center justify-center text-blue-600">
-                <FileText size={22} className="stroke-[2.5]" />
-              </div>
-            </div>
-            <div>
-              <span className="text-2xl font-black tracking-tight text-slate-900">وثيق</span>
-            </div>
-          </div>
-          
-          <button 
-            onClick={onStart}
-            className="text-xs font-bold text-slate-700 hover:text-blue-700 bg-white hover:bg-slate-50 border border-slate-200/80 px-5 py-2.5 rounded-xl shadow-xs transition-all hover:scale-105 cursor-pointer"
-          >
-            تسجيل الدخول
-          </button>
+    <div className="wq-landing" dir="rtl">
+      <div className="wq-shell">
+        <header className="wq-header">
+          <Logo className="wq-logo" imageClassName="wq-logo-image" textSize="wq-logo-text" />
+          <nav aria-label="روابط الصفحة" className="wq-nav">
+            <button type="button" onClick={() => scrollTo('features')}>المزايا</button>
+            <button type="button" onClick={() => scrollTo('how-it-works')}>كيف يعمل</button>
+          </nav>
+          <button type="button" className="wq-btn wq-login" onClick={onStart}><User size={18}/><span>تسجيل الدخول</span></button>
         </header>
-
-        {/* Hero Section */}
-        <main className="flex-1 flex flex-col items-center justify-center px-4 text-center max-w-4xl mx-auto w-full mt-6 sm:mt-12">
-          
-          {/* Hero Title */}
-          <h1 className="text-4xl sm:text-6xl font-black text-slate-900 tracking-tight leading-tight mb-6">
-            توثيق مستنداتك الرسمية <br/>
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-800">
-              بأعلى معايير الأمان والاحترافية
-            </span>
-          </h1>
-          
-          <p className="text-slate-600 text-base sm:text-lg max-w-2xl mx-auto leading-relaxed mb-8 font-medium">
-            ادمج أوراق المعاملات مع أوراق المؤسسة الرسمية، أضف الأختام والتواقيع، واستورد أصولك المحفوظة بضغطة زر واحدة.
-          </p>
-
-          <div className="flex flex-col sm:flex-row items-center gap-4">
-            <button
-              onClick={onStart}
-              className="group relative inline-flex items-center justify-center gap-3 bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-500 hover:to-indigo-600 text-white px-9 py-4 rounded-2xl font-black text-lg transition-all hover:scale-[1.02] active:scale-[0.98] shadow-xl shadow-blue-600/25 cursor-pointer overflow-hidden"
-            >
-              <span>دخول المنصة</span>
-              <ArrowLeft size={20} className="group-hover:-translate-x-1 transition-transform" />
-            </button>
-          </div>
-
-          {/* Features Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 mt-16 text-right w-full">
-            <div className="bg-white border border-slate-200/80 p-6 rounded-3xl shadow-sm hover:shadow-md hover:border-blue-500/40 transition-all">
-              <div className="w-11 h-11 bg-blue-50 border border-blue-100 rounded-2xl flex items-center justify-center mb-4 text-blue-600">
-                <Lock size={22} />
+        <main>
+          <section className="wq-hero" aria-labelledby="wq-title">
+            <div className="wq-copy">
+              <h1 id="wq-title">مستنداتك،<br/><span>بثقة.</span></h1>
+              <p className="wq-description">ادمج أوراقك، أضف ختمك وتوقيعك،<br className="wq-desktop-break"/> وصدّر مستندك في مكان واحد.</p>
+              <div className="wq-actions">
+                <button type="button" className="wq-btn wq-primary" onClick={onStart}><FileText size={21}/><span>ابدأ توثيق مستندك</span><ArrowLeft size={18}/></button>
+                <button type="button" className="wq-btn wq-secondary" onClick={() => scrollTo('how-it-works')}><Play size={18}/><span>كيف يعمل وثيق؟</span></button>
               </div>
-              <h3 className="text-base font-bold text-slate-900 mb-1.5">أمان وخصوصية تامة</h3>
-              <p className="text-xs text-slate-500 leading-relaxed">معالجة فورية ومباشرة داخل متصفحك مع الحفاظ التام على سرية أوراقك.</p>
+              <div className="wq-chips">{['دمج متعدد الصفحات','أصول محفوظة','تصدير PDF'].map(label => <span key={label}><Check size={14}/>{label}</span>)}</div>
             </div>
-
-            <div className="bg-white border border-slate-200/80 p-6 rounded-3xl shadow-sm hover:shadow-md hover:border-blue-500/40 transition-all">
-              <div className="w-11 h-11 bg-blue-50 border border-blue-100 rounded-2xl flex items-center justify-center mb-4 text-blue-600">
-                <Layers size={22} />
+            <div className="wq-scene" role="img" aria-label="رسم توضيحي لدمج المستند وإضافة الختم والتوقيع وتصديره">
+              <div className="wq-ribbon wq-ribbon-one"/><div className="wq-ribbon wq-ribbon-two"/>
+              <div className="wq-paper wq-paper-back"/><div className="wq-paper wq-paper-middle"/>
+              <div className="wq-document"><div className="wq-document-title"/><div className="wq-document-image"/>
+                <div className="wq-lines">{Array.from({length:8},(_,i)=><i key={i} style={{width: i % 3 === 0 ? '72%' : '100%'}}/>)}</div>
+                <div className="wq-document-bottom"><svg className="wq-signature" viewBox="0 0 160 65" aria-hidden="true"><path d="M8 49C23 36 59 7 48 7C35 7 18 62 42 52C65 42 69 15 58 30C49 44 72 49 86 36C97 23 90 46 107 38C116 34 123 42 150 26" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"/></svg><div className="wq-demo-stamp"><Stamp size={25}/><span>ختم المؤسسة</span></div></div>
               </div>
-              <h3 className="text-base font-bold text-slate-900 mb-1.5">دمج متعدد الصفحات</h3>
-              <p className="text-xs text-slate-500 leading-relaxed">دمج ملفات PDF والصور المتعددة وتطبيق الورقة الرسمية بدقة متناهية.</p>
+              <div className="wq-tools wq-float"><span><Stamp size={20}/>ختم المؤسسة</span><span><PenTool size={20}/>التوقيع الرسمي</span><span><FileText size={20}/>ورقة المؤسسة</span></div>
+              <div className="wq-merge wq-float"><span>دمج 3 ملفات</span><div><FileText/><ArrowLeft size={16}/><Layers/></div></div>
+              <div className="wq-export wq-float"><div className="wq-pdf">PDF</div><span>جاهز للتصدير</span><Check size={19}/></div>
             </div>
-
-            <div className="bg-white border border-slate-200/80 p-6 rounded-3xl shadow-sm hover:shadow-md hover:border-blue-500/40 transition-all">
-              <div className="w-11 h-11 bg-blue-50 border border-blue-100 rounded-2xl flex items-center justify-center mb-4 text-blue-600">
-                <Stamp size={22} />
-              </div>
-              <h3 className="text-base font-bold text-slate-900 mb-1.5">أختام وتواقيع سحابية</h3>
-              <p className="text-xs text-slate-500 leading-relaxed">احفظ أختامك وتوقيعك في حسابك واستخدمها فوراً دون الحاجة لإعادة الرفع.</p>
-            </div>
-          </div>
-          
-          <div className="mt-16 mb-16 flex flex-col items-center justify-center opacity-70">
-            <span className="font-bold text-sm text-slate-700">منصة وثيق للتوثيق الإلكتروني</span>
-            <span className="text-[11px] font-medium text-slate-500 mt-1">جميع الحقوق محفوظة © {new Date().getFullYear()}</span>
-          </div>
+          </section>
+          <section id="features" className="wq-features" aria-label="مزايا وثيق">{features.map(({Icon,title,text},i)=><article className="wq-feature" key={title} style={{animationDelay:`${i*70}ms`}}><div className="wq-feature-icon"><Icon size={28}/></div><div><h2>{title}</h2><p>{text}</p></div></article>)}</section>
+          <section id="how-it-works" className="wq-how" aria-labelledby="wq-how-title"><h2 id="wq-how-title">كيف يعمل وثيق؟</h2><div className="wq-steps">{steps.map(({Icon,title,text},i)=><article className="wq-step" key={title}><span className="wq-step-number">{i+1}</span><div className="wq-step-icon"><Icon size={25}/></div><div><h3>{title}</h3><p>{text}</p></div></article>)}</div></section>
         </main>
+        <footer className="wq-footer">وثيق · دمج المستندات والختم والتوقيع</footer>
       </div>
     </div>
   );
