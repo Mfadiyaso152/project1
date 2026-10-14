@@ -389,7 +389,7 @@ const App: React.FC = () => {
   const canProceed = docs.originalPages.length > 0 || !!docs.original;
 
   return (
-    <div className="wq-workspace min-h-screen bg-[#f8fafc] text-slate-900 flex flex-col font-sans relative" dir="rtl">
+    <div className="wq-workspace min-h-screen bg-[#F8FAFF] text-slate-900 flex flex-col font-sans relative" dir="rtl">
       
       {/* Background ambient luxury lighting */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
@@ -452,28 +452,28 @@ const App: React.FC = () => {
       </header>
 
       {/* MAIN WORKSPACE */}
-      <main className="wq-workspace-main relative z-10 pt-6 pb-20 flex-1 w-full animate-fade-in-up">
+      <main className={`wq-workspace-main relative z-10 pt-6 flex-1 w-full animate-fade-in-up flex flex-col ${step === Step.UPLOAD ? 'pb-0' : 'pb-20'}`}>
         
         {step === Step.UPLOAD && (
-          <div className="flex flex-col w-full min-h-[85vh] py-6 pb-16 relative overflow-hidden bg-[#F8FAFF]">
+          <div className="flex flex-col justify-between w-full flex-1 min-h-[calc(100vh-100px)] pt-2 pb-14 relative overflow-hidden bg-[#F8FAFF]">
             {/* Top Ribbon Strip */}
-            <div className="absolute top-0 left-0 right-0 w-full overflow-hidden pointer-events-none select-none z-0 h-44 sm:h-56 md:h-72">
+            <div className="absolute top-0 left-0 right-0 w-full overflow-hidden pointer-events-none select-none z-0 h-48 sm:h-64 md:h-80">
               <img 
                 src="/wathiq-background.png" 
                 alt="" 
-                className="w-full h-full object-cover object-top pointer-events-none" 
+                className="w-full h-full object-cover sm:object-fill object-top pointer-events-none" 
               />
-              <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[#F8FAFF]/40 to-[#F8FAFF]" />
+              <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[#F8FAFF]/20 to-[#F8FAFF]" />
             </div>
 
-            {/* Bottom Ribbon Strip (Reversed: inverted/flipped) */}
-            <div className="absolute bottom-0 left-0 right-0 w-full overflow-hidden pointer-events-none select-none z-0 h-44 sm:h-56 md:h-72">
+            {/* Bottom Ribbon Strip (Reversed: extends completely down to bottom edge) */}
+            <div className="absolute bottom-0 left-0 right-0 w-full overflow-hidden pointer-events-none select-none z-0 h-64 sm:h-80 md:h-[450px] lg:h-[520px]">
               <img 
                 src="/wathiq-background.png" 
                 alt="" 
-                className="w-full h-full object-cover object-bottom pointer-events-none transform scale-x-[-1] scale-y-[-1]" 
+                className="w-full h-full object-cover sm:object-fill object-bottom pointer-events-none transform scale-x-[-1] scale-y-[-1]" 
               />
-              <div className="absolute inset-0 bg-gradient-to-t from-transparent via-[#F8FAFF]/40 to-[#F8FAFF]" />
+              <div className="absolute inset-0 bg-gradient-to-t from-transparent via-[#F8FAFF]/10 to-[#F8FAFF]" />
             </div>
 
             <div className="wq-upload-container relative z-10">
