@@ -3,7 +3,10 @@ import { Layers, Stamp, PenTool, Download, Upload, Check, FileText, ArrowLeft, P
 import { Logo } from './Logo';
 import './wathiq-brand.css';
 
-interface LandingViewProps { onStart: () => void }
+interface LandingViewProps { 
+  onStart: () => void;
+  onLogin?: () => void;
+}
 const features = [
   { Icon: Layers, title: 'دمج المستندات', text: 'ادمج ملفاتك وصورك وورقة مؤسستك في مستند واحد.' },
   { Icon: PenTool, title: 'الختم والتوقيع', text: 'أضف ختم المؤسسة وتوقيعك، واضبط موضعهما بسهولة.' },
@@ -14,7 +17,7 @@ const steps = [
   { Icon: Stamp, title: 'أضف ختمك وتوقيعك', text: 'استخدم أصولك المحفوظة أو ارسم توقيعك.' },
   { Icon: Download, title: 'صدّر مستندك', text: 'راجع الصفحات وحمّل ملف PDF.' }
 ];
-export const LandingView: React.FC<LandingViewProps> = ({ onStart }) => {
+export const LandingView: React.FC<LandingViewProps> = ({ onStart, onLogin }) => {
   const scrollTo = (id: string) => document.getElementById(id)?.scrollIntoView({
     behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'
   });
@@ -27,7 +30,7 @@ export const LandingView: React.FC<LandingViewProps> = ({ onStart }) => {
             <button type="button" onClick={() => scrollTo('features')}>المزايا</button>
             <button type="button" onClick={() => scrollTo('how-it-works')}>كيف يعمل</button>
           </nav>
-          <button type="button" className="wq-btn wq-login" onClick={onStart}><User size={18}/><span>تسجيل الدخول</span></button>
+          <button type="button" className="wq-btn wq-login" onClick={onLogin || onStart}><User size={18}/><span>تسجيل الدخول</span></button>
         </header>
         <main>
           <section className="wq-hero" aria-labelledby="wq-title">

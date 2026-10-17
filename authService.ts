@@ -724,7 +724,15 @@ export const signInWithFirebaseGoogle = async (): Promise<{
   message: string;
 }> => {
   try {
-    const cred = await signInWithPopup(auth, googleProvider);
+    const popupPromise = signInWithPopup(auth, googleProvider);
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => {
+        const timeoutErr: any = new Error('استغرقت نافذة تسجيل الدخول وقتاً أطول من المتوقع. يرجى اختيار حسابك من القائمة أو تسجيل الدخول بالبريد الإلكتروني.');
+        timeoutErr.code = 'auth/timeout';
+        reject(timeoutErr);
+      }, 10000)
+    );
+    const cred = await Promise.race([popupPromise, timeoutPromise]);
     const gUser = cred.user;
     if (!gUser?.email) {
       return { success: false, message: 'تعذر الحصول على البريد الإلكتروني من حساب Google' };
@@ -803,10 +811,19 @@ export const signInWithFirebaseGoogle = async (): Promise<{
   } catch (err: any) {
     console.warn('Firebase Google Sign-in error:', err);
     if (err?.code === 'auth/popup-closed-by-user') {
-      return { success: false, message: 'تم إغلاق نافذة تسجيل الدخول من Google قبل إتمام العملية' };
+      return { success: false, message: 'تم إغلاق نافذة اختيار حساب Google قبل إتمام العملية' };
     }
     if (err?.code === 'auth/cancelled-popup-request') {
-      return { success: false, message: 'تم إلغاء طلب تسجيل الدخول' };
+      return { success: false, message: 'تم إلغاء طلب تسجيل الدخول، يرجى المحاولة مرة أخرى' };
+    }
+    if (err?.code === 'auth/popup-blocked') {
+      return { success: false, message: 'تم حظر النافذة المنبثقة من قِبل المتصفح. يرجى السماح بالنوافذ المنبثقة أو الدخول بالبريد الإلكتروني.' };
+    }
+    if (err?.code === 'auth/unauthorized-domain') {
+      return { success: false, message: 'هذا النطاق غير مصرح به في Firebase Console. يرجى الدخول بالبريد الإلكتروني.' };
+    }
+    if (err?.code === 'auth/timeout') {
+      return { success: false, message: err.message || 'انتهت مهلة تسجيل الدخول، يرجى إعادة المحاولة' };
     }
     return { 
       success: false, 

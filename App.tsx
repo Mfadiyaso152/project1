@@ -11,13 +11,15 @@ import {
   AlertCircle,
   Settings,
   LogOut,
-  BookmarkCheck
+  BookmarkCheck,
+  User as UserIcon
 } from 'lucide-react';
 import FileUpload from './components/FileUpload';
 import CanvasEditor from './components/CanvasEditor';
 import SignaturePad from './components/SignaturePad';
 import { LandingView } from './components/LandingView';
 import { AccountView } from './components/AccountView';
+import { AuthFlow } from './components/AuthFlow';
 import { BottomBar } from './components/BottomBar';
 import { DocumentState, Step, User } from './types';
 import { Logo } from './components/Logo';
@@ -238,7 +240,7 @@ const App: React.FC = () => {
   const handleImportAsset = async (type: 'template' | 'stamp' | 'signature' | 'all') => {
     if (!currentUser?.email) {
       showToast('يرجى تسجيل الدخول بحسابك لاستيراد أصولك المحفوظة', 'info');
-      handleDirectGoogleLogin();
+      setStep(Step.AUTH);
       return;
     }
 
@@ -317,7 +319,7 @@ const App: React.FC = () => {
     const check = canUserProcessFile(currentUser);
     if (!check.allowed) {
       showToast(check.reason || 'يرجى تسجيل الدخول أولاً', 'error');
-      handleDirectGoogleLogin();
+      setStep(Step.AUTH);
       return;
     }
 
@@ -359,15 +361,34 @@ const App: React.FC = () => {
     showToast('تم بدء معاملة جديدة وتفريغ الملفات بنجاح ✨');
   };
 
-  // Landing Flow -> Landing Page has BottomBar
+  // Landing Flow
   if (step === Step.LANDING) {
-    return <LandingView onStart={handleDirectGoogleLogin} />;
+    return (
+      <LandingView 
+        onStart={() => {
+          if (currentUser) {
+            setStep(Step.UPLOAD);
+          } else {
+            setStep(Step.AUTH);
+          }
+        }} 
+        onLogin={() => setStep(Step.AUTH)}
+      />
+    );
   }
 
-  // Auth Flow -> Fallback to direct Google login
+  // Auth Flow -> Dedicated Account Selection & Login Screen
   if (step === Step.AUTH) {
-    handleDirectGoogleLogin();
-    return null;
+    return (
+      <AuthFlow
+        onSuccess={(loggedInUser) => {
+          setUser(loggedInUser);
+          setStep(Step.UPLOAD);
+          showToast(`مرحباً بك ${loggedInUser.name} ✨`);
+        }}
+        onCancel={() => setStep(currentUser ? Step.UPLOAD : Step.LANDING)}
+      />
+    );
   }
 
   // Dedicated Account Page (Asset Management ONLY)
@@ -440,13 +461,24 @@ const App: React.FC = () => {
 
       {/* Top Header Bar matching reference image layout */}
       <header className="w-full px-4 pt-6 pb-2 flex items-center justify-between relative z-20">
-        <button
-          onClick={() => setStep(Step.ACCOUNT)}
-          className="w-10 h-10 rounded-full bg-white hover:bg-slate-50 border border-slate-200/90 hover:border-blue-400 flex items-center justify-center shadow-xs transition-all cursor-pointer text-slate-700 hover:text-blue-600"
-          title="حفظ الأصول"
-        >
-          <Settings size={20} />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setStep(currentUser ? Step.ACCOUNT : Step.AUTH)}
+            className="w-10 h-10 rounded-full bg-white hover:bg-slate-50 border border-slate-200/90 hover:border-blue-400 flex items-center justify-center shadow-xs transition-all cursor-pointer text-slate-700 hover:text-blue-600"
+            title={currentUser ? "حفظ وإدارة الأصول" : "تسجيل الدخول"}
+          >
+            {currentUser ? <Settings size={20} /> : <UserIcon size={20} />}
+          </button>
+          {!currentUser && (
+            <button
+              onClick={() => setStep(Step.AUTH)}
+              className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold rounded-xl border border-blue-200 transition-all cursor-pointer flex items-center gap-1.5"
+            >
+              <UserIcon size={14} />
+              <span>تسجيل الدخول</span>
+            </button>
+          )}
+        </div>
 
         <Logo />
       </header>

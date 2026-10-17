@@ -13,13 +13,17 @@ import {
   Sparkles,
   ShieldCheck,
   MessageCircle,
-  Check
+  Check,
+  Plus
 } from 'lucide-react';
 import { User } from '../types';
 import { 
   loginWithEmailAndPassword, 
   registerWithEmailAndPassword,
-  signInWithFirebaseGoogle 
+  signInWithFirebaseGoogle,
+  getStoredUsers,
+  setCurrentUser,
+  ADMIN_EMAIL
 } from '../authService';
 
 interface AuthFlowProps {
@@ -30,6 +34,11 @@ interface AuthFlowProps {
 export const AuthFlow: React.FC<AuthFlowProps> = ({ onSuccess, onCancel }) => {
   // Mode: 'login' | 'register'
   const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [storedAccounts, setStoredAccounts] = useState<User[]>(() => {
+    const list = getStoredUsers();
+    return list.filter(u => u.email && !u.email.includes('sample') && !u.email.includes('demo'));
+  });
+  const [showManualForm, setShowManualForm] = useState(false);
   
   // Registration steps:
   // 0: Welcome greeting
@@ -55,6 +64,28 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({ onSuccess, onCancel }) => {
 
   // Direct WhatsApp support link
   const whatsappSupportUrl = `https://wa.me/966536894854?text=${encodeURIComponent('مرحباً، نسيت كلمة المرور لحسابي في منصة وثيق، وأحتاج مساعدة في استعادتها.')}`;
+
+  // Quick account select from device list
+  const handleQuickAccountSelect = async (account: User) => {
+    setIsLoading(true);
+    setError('');
+    setNoAccountError(false);
+    try {
+      const updated = {
+        ...account,
+        lastLoginAt: new Date().toISOString()
+      };
+      setCurrentUser(updated);
+      setSuccessMsg(`مرحباً بعودتك ${updated.name}`);
+      setTimeout(() => {
+        setIsLoading(false);
+        onSuccess(updated);
+      }, 250);
+    } catch (err: any) {
+      setError('تعذر تسجيل الدخول بهذا الحساب');
+      setIsLoading(false);
+    }
+  };
 
   // Handle Login submission
   const handleLoginSubmit = async (e: React.FormEvent) => {
@@ -281,87 +312,169 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({ onSuccess, onCancel }) => {
         )}
 
         {/* ======================================================== */}
-        {/* MODE 1: LOGIN FLOW */}
+        {/* MODE 1: LOGIN FLOW & ACCOUNT SELECTION */}
         {/* ======================================================== */}
         {mode === 'login' && (
           <div className="flex flex-col gap-4 animate-fade-in">
-            <form onSubmit={handleLoginSubmit} className="flex flex-col gap-3.5">
-              {/* Email */}
-              <div>
-                <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                  البريد الإلكتروني
-                </label>
-                <div className="relative">
-                  <input
-                    type="email"
-                    value={emailInput}
-                    onChange={(e) => {
-                      setEmailInput(e.target.value);
-                      setNoAccountError(false);
-                    }}
-                    placeholder="example@gmail.com"
-                    required
-                    className="w-full bg-slate-50 border border-slate-200 focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-100 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-900 transition-all duration-200 outline-hidden text-left pl-3.5 pr-9"
-                    dir="ltr"
-                  />
-                  <Mail size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            {/* Account Chooser Cards */}
+            {storedAccounts.length > 0 && !showManualForm && (
+              <div className="flex flex-col gap-2.5">
+                <div className="flex items-center justify-between px-1">
+                  <span className="text-xs font-black text-slate-800">
+                    اختيار حساب للمتابعة
+                  </span>
+                  <span className="text-[11px] font-bold text-slate-400">
+                    الحسابات المسجلة
+                  </span>
                 </div>
-              </div>
 
-              {/* Password */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-[11px] font-bold text-slate-700">
-                    كلمة المرور
-                  </label>
-                  {/* Forgot Password -> WhatsApp support button */}
-                  <a
-                    href={whatsappSupportUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-[11px] text-blue-600 hover:text-blue-800 font-bold hover:underline flex items-center gap-1 transition-colors"
-                  >
-                    <MessageCircle size={12} className="text-emerald-500" />
-                    <span>نسيت كلمة المرور؟ تواصل مع الدعم</span>
-                  </a>
+                <div className="flex flex-col gap-2">
+                  {storedAccounts.map((account) => (
+                    <button
+                      key={account.id || account.email}
+                      type="button"
+                      disabled={isLoading}
+                      onClick={() => handleQuickAccountSelect(account)}
+                      className="w-full flex items-center justify-between p-3.5 bg-slate-50 hover:bg-blue-50/70 border border-slate-200/90 hover:border-blue-300 rounded-2xl transition-all duration-200 group text-right cursor-pointer hover:shadow-xs active:scale-[0.99]"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        {account.avatar ? (
+                          <img
+                            src={account.avatar}
+                            alt={account.name}
+                            className="w-10 h-10 rounded-full border border-slate-200 object-cover shrink-0"
+                          />
+                        ) : (
+                          <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-700 font-black text-sm flex items-center justify-center shrink-0">
+                            {account.name ? account.name.charAt(0) : 'U'}
+                          </div>
+                        )}
+                        <div className="flex flex-col min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-black text-slate-900 truncate">
+                              {account.name}
+                            </span>
+                            {account.role === 'admin' && (
+                              <span className="text-[10px] bg-blue-100 text-blue-800 font-black px-1.5 py-0.5 rounded-full">
+                                مدير
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[11px] text-slate-500 font-mono truncate" dir="ltr">
+                            {account.email}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-blue-600 group-hover:-translate-x-1 transition-transform">
+                        <span>دخول</span>
+                        <ArrowRight size={14} className="rotate-180" />
+                      </div>
+                    </button>
+                  ))}
                 </div>
-                <div className="relative">
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    value={passwordInput}
-                    onChange={(e) => setPasswordInput(e.target.value)}
-                    placeholder="••••••••"
-                    required
-                    className="w-full bg-slate-50 border border-slate-200 focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-100 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-900 transition-all duration-200 outline-hidden text-left pl-9 pr-9"
-                    dir="ltr"
-                  />
-                  <Lock size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+
+                {/* Option to use another account */}
+                <button
+                  type="button"
+                  onClick={() => setShowManualForm(true)}
+                  className="w-full mt-1 py-2 text-xs font-bold text-blue-600 hover:text-blue-700 hover:underline transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Plus size={14} />
+                  <span>استخدام بريد أو حساب آخر</span>
+                </button>
+              </div>
+            )}
+
+            {/* Manual Form (Shown if no stored accounts or if user clicked "Use another account") */}
+            {(storedAccounts.length === 0 || showManualForm) && (
+              <form onSubmit={handleLoginSubmit} className="flex flex-col gap-3.5">
+                {storedAccounts.length > 0 && (
                   <button
                     type="button"
-                    onClick={() => setShowPassword(p => !p)}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+                    onClick={() => setShowManualForm(false)}
+                    className="self-start text-[11px] font-bold text-slate-500 hover:text-blue-600 flex items-center gap-1 mb-1 transition-colors cursor-pointer"
                   >
-                    {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                    <ArrowRight size={13} />
+                    <span>الرجوع إلى قائمة الحسابات</span>
                   </button>
-                </div>
-              </div>
-
-              {/* Submit Button */}
-              <button
-                type="submit"
-                disabled={isLoading || !emailInput.trim() || !passwordInput}
-                className="w-full mt-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-40 text-white font-black py-3 px-4 rounded-xl text-xs transition-all duration-200 shadow-md shadow-blue-600/20 flex items-center justify-center gap-2 cursor-pointer hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98]"
-              >
-                {isLoading ? (
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                ) : (
-                  <>
-                    <span>تسجيل الدخول</span>
-                    <ArrowRight size={14} className="rotate-180" />
-                  </>
                 )}
-              </button>
-            </form>
+
+                {/* Email */}
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                    البريد الإلكتروني
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="email"
+                      value={emailInput}
+                      onChange={(e) => {
+                        setEmailInput(e.target.value);
+                        setNoAccountError(false);
+                      }}
+                      placeholder="example@gmail.com"
+                      required
+                      className="w-full bg-slate-50 border border-slate-200 focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-100 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-900 transition-all duration-200 outline-hidden text-left pl-3.5 pr-9"
+                      dir="ltr"
+                    />
+                    <Mail size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                  </div>
+                </div>
+
+                {/* Password */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[11px] font-bold text-slate-700">
+                      كلمة المرور
+                    </label>
+                    <a
+                      href={whatsappSupportUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[11px] text-blue-600 hover:text-blue-800 font-bold hover:underline flex items-center gap-1 transition-colors"
+                    >
+                      <MessageCircle size={12} className="text-emerald-500" />
+                      <span>نسيت كلمة المرور؟ تواصل مع الدعم</span>
+                    </a>
+                  </div>
+                  <div className="relative">
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      value={passwordInput}
+                      onChange={(e) => setPasswordInput(e.target.value)}
+                      placeholder="••••••••"
+                      required
+                      className="w-full bg-slate-50 border border-slate-200 focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-100 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-900 transition-all duration-200 outline-hidden text-left pl-9 pr-9"
+                      dir="ltr"
+                    />
+                    <Lock size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(p => !p)}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+                    >
+                      {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Submit Button */}
+                <button
+                  type="submit"
+                  disabled={isLoading || !emailInput.trim() || !passwordInput}
+                  className="w-full mt-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-40 text-white font-black py-3 px-4 rounded-xl text-xs transition-all duration-200 shadow-md shadow-blue-600/20 flex items-center justify-center gap-2 cursor-pointer hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98]"
+                >
+                  {isLoading ? (
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <>
+                      <span>تسجيل الدخول</span>
+                      <ArrowRight size={14} className="rotate-180" />
+                    </>
+                  )}
+                </button>
+              </form>
+            )}
 
             {/* Quick link: Don't have an account? */}
             <div className="mt-1 text-center">
@@ -380,7 +493,7 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({ onSuccess, onCancel }) => {
             </div>
 
             {/* Divider */}
-            <div className="relative my-3 flex items-center justify-center">
+            <div className="relative my-2 flex items-center justify-center">
               <div className="absolute inset-0 flex items-center">
                 <div className="w-full border-t border-slate-200" />
               </div>
@@ -419,7 +532,7 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({ onSuccess, onCancel }) => {
                 </svg>
               )}
               <span className="text-xs font-bold text-slate-800">
-                أو الدخول بواسطة قوقل
+                الدخول بحساب Google
               </span>
             </button>
           </div>
