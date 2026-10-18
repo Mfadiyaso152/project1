@@ -53,6 +53,7 @@ const App: React.FC = () => {
     stamp: null, 
     signature: null,
   });
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   const showToast = (msg: string, type: 'success' | 'error' | 'info' = 'success') => {
     setNotification({ msg, type });
@@ -219,28 +220,29 @@ const App: React.FC = () => {
   };
 
   const handleDirectGoogleLogin = async () => {
-    setLoadingText('جاري تسجيل الدخول بواسطة جوجل...');
-    setLoadingPdf(true);
+    if (isLoggingIn) return;
+    setIsLoggingIn(true);
+    showToast('جاري تسجيل الدخول عبر Google...', 'info');
     try {
       const res = await signInWithFirebaseGoogle();
       if (res.success && res.user) {
         setUser(res.user);
         setStep(Step.UPLOAD);
-        showToast('تم تسجيل الدخول بواسطة جوجل بنجاح ✨');
-      } else {
-        showToast(res.message || 'فشل تسجيل الدخول بواسطة جوجل', 'error');
+        showToast(res.message || `مرحباً ${res.user.name}، تم تسجيل الدخول بنجاح ✨`);
+      } else if (res.message) {
+        showToast(res.message, 'info');
       }
     } catch (err: any) {
-      showToast('حدث خطأ أثناء تسجيل الدخول: ' + (err?.message || err), 'error');
+      showToast('تعذر تسجيل الدخول، يرجى المحاولة مرة أخرى', 'error');
     } finally {
-      setLoadingPdf(false);
+      setIsLoggingIn(false);
     }
   };
 
   const handleImportAsset = async (type: 'template' | 'stamp' | 'signature' | 'all') => {
     if (!currentUser?.email) {
-      showToast('يرجى تسجيل الدخول بحسابك لاستيراد أصولك المحفوظة', 'info');
-      setStep(Step.AUTH);
+      showToast('يرجى تسجيل الدخول أولاً لاستيراد أصولك المحفوظة', 'info');
+      handleDirectGoogleLogin();
       return;
     }
 
@@ -319,7 +321,7 @@ const App: React.FC = () => {
     const check = canUserProcessFile(currentUser);
     if (!check.allowed) {
       showToast(check.reason || 'يرجى تسجيل الدخول أولاً', 'error');
-      setStep(Step.AUTH);
+      handleDirectGoogleLogin();
       return;
     }
 
@@ -369,10 +371,10 @@ const App: React.FC = () => {
           if (currentUser) {
             setStep(Step.UPLOAD);
           } else {
-            setStep(Step.AUTH);
+            handleDirectGoogleLogin();
           }
         }} 
-        onLogin={() => setStep(Step.AUTH)}
+        onLogin={handleDirectGoogleLogin}
       />
     );
   }
@@ -463,19 +465,19 @@ const App: React.FC = () => {
       <header className="w-full px-4 pt-6 pb-2 flex items-center justify-between relative z-20">
         <div className="flex items-center gap-2">
           <button
-            onClick={() => setStep(currentUser ? Step.ACCOUNT : Step.AUTH)}
+            onClick={() => currentUser ? setStep(Step.ACCOUNT) : handleDirectGoogleLogin()}
             className="w-10 h-10 rounded-full bg-white hover:bg-slate-50 border border-slate-200/90 hover:border-blue-400 flex items-center justify-center shadow-xs transition-all cursor-pointer text-slate-700 hover:text-blue-600"
-            title={currentUser ? "حفظ وإدارة الأصول" : "تسجيل الدخول"}
+            title={currentUser ? "حفظ وإدارة الأصول" : "تسجيل الدخول عبر Google"}
           >
             {currentUser ? <Settings size={20} /> : <UserIcon size={20} />}
           </button>
           {!currentUser && (
             <button
-              onClick={() => setStep(Step.AUTH)}
-              className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold rounded-xl border border-blue-200 transition-all cursor-pointer flex items-center gap-1.5"
+              onClick={handleDirectGoogleLogin}
+              className="px-3.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold rounded-xl border border-blue-200 transition-all cursor-pointer flex items-center gap-1.5 shadow-xs"
             >
               <UserIcon size={14} />
-              <span>تسجيل الدخول</span>
+              <span>تسجيل الدخول عبر Google</span>
             </button>
           )}
         </div>
